@@ -19,6 +19,7 @@ import {
   Plus,
   Search,
   Settings,
+  SlidersHorizontal,
   Star,
   Sun,
   Trash2,
@@ -86,6 +87,8 @@ interface TopToolbarProps {
   onToggleTheme: () => void;
   watchlistOpen: boolean;
   onToggleWatchlist: () => void;
+  screenerOpen?: boolean;
+  onToggleScreener?: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   onScreenshot: () => void;
@@ -119,6 +122,8 @@ export default function TopToolbar({
   onToggleTheme,
   watchlistOpen,
   onToggleWatchlist,
+  screenerOpen = false,
+  onToggleScreener,
   isFullscreen,
   onToggleFullscreen,
   onScreenshot,
@@ -691,6 +696,24 @@ export default function TopToolbar({
             </div>
           )}
         </div>
+
+        {onToggleScreener && (
+          <button
+            type="button"
+            data-testid="screener-toggle-button"
+            onClick={onToggleScreener}
+            aria-expanded={screenerOpen}
+            title="Toggle Stock Screener (EMA 9, Technicals, Valuation)"
+            className={`h-8 px-2.5 flex items-center gap-1.5 rounded text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              screenerOpen
+                ? 'bg-[#2962ff]/12 border-[#2962ff]/45 text-[#2962ff] dark:text-[#60a5fa]'
+                : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-[#b2b5be] dark:hover:bg-[#1e2433] dark:hover:text-white'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Screener</span>
+          </button>
+        )}
       </div>
 
       {/* Right: Scale, Theme, Watchlist, Screenshot, Fullscreen */}

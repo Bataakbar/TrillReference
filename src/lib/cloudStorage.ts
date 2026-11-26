@@ -1,5 +1,6 @@
 import type { ChartCandleType, SerializedOverlay, ThemeMode, YAxisScaleType } from '../types/chart';
 import type { IndicatorInstance } from '../indicators/indicatorModel';
+import type { ScreenerPreset } from '../../shared/screenerModel';
 import type { ChartDisplaySettings } from '../utils/chartStyles';
 import type {
   ActiveWatchlistRef,
@@ -25,6 +26,7 @@ export interface CloudWorkspaceState {
   watchlistColumnPrefs?: WatchlistColumnPrefs;
   chartSettings?: ChartDisplaySettings;
   favoriteTimeframes?: string[];
+  savedScreenerPresets?: ScreenerPreset[];
 }
 
 export interface UserProfileRecord {

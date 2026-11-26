@@ -15,11 +15,19 @@ import {
   type RawYahooQuote,
 } from '../shared/timeframes.js';
 import {
+  INSTRUMENT_CATALOG,
   queryInstrumentCatalog,
   type CatalogInstrument,
   type SearchCategoryFilter,
   type StockTypeFilter,
 } from '../shared/instrumentCatalog.js';
+import {
+  computeScreenerTechnicals,
+  type ScreenerMarket,
+  type ScreenerRow,
+  type ScreenerTechnicalSnapshot,
+  type ScreenerTimeframe,
+} from '../shared/screenerModel.js';
 
 // Initialize yahoo-finance2 v3/v4 instance safely
 const yahooFinance = new YahooFinance({
@@ -35,6 +43,8 @@ const chartCache = new Map<string, CacheEntry<unknown>>();
 const quoteCache = new Map<string, CacheEntry<unknown>>();
 const searchCache = new Map<string, CacheEntry<CatalogInstrument[]>>();
 const screenerCache = new Map<string, CacheEntry<CatalogInstrument[]>>();
+const screenerTechCache = new Map<string, CacheEntry<ScreenerTechnicalSnapshot>>();
+const screenerPayloadCache = new Map<string, CacheEntry<unknown>>();
 const firstTradeCache = new Map<string, number>();
 
 function isYahooRangeExhaustedError(err: unknown): boolean {
@@ -713,6 +723,286 @@ export function createApiApp(): express.Express {
     } catch (err) {
       console.error('[Yahoo Quotes Error]:', err instanceof Error ? err.message : err);
       res.status(502).json({ error: 'Unable to fetch watchlist quotes.', quotes: [] });
+    }
+  });
+
+  app.get('/api/screener', async (req, res) => {
+    const rawMarket = typeof req.query.market === 'string' ? req.query.market.toUpperCase() : 'ID';
+    const market: ScreenerMarket =
+      rawMarket === 'US' ||
+      rawMarket === 'GLOBAL' ||
+      rawMarket === 'CRYPTO' ||
+      rawMarket === 'WATCHLIST'
+        ? rawMarket
+        : 'ID';
+
+    const rawTf = typeof req.query.tf === 'string' ? req.query.tf.trim().toLowerCase() : '1d';
+    const tf: ScreenerTimeframe =
+      rawTf === '1w' || rawTf === '4h' || rawTf === '1h' || rawTf === '15m' ? rawTf : '1d';
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+
+    let universe: CatalogInstrument[];
+    if (market === 'WATCHLIST') {
+      const rawSymbols = typeof req.query.symbols === 'string' ? req.query.symbols : '';
+      const validSymbols = Array.from(
+        new Set(
+          rawSymbols
+            .split(',')
+            .map((s) => normalizeAndValidateSymbol(s))
+            .filter((s): s is string => s !== null)
+        )
+      ).slice(0, 100);
+
+      const catalogBySym = new Map(INSTRUMENT_CATALOG.map((item) => [item.symbol.toUpperCase(), item]));
+      universe = validSymbols.map(
+        (sym) =>
+          catalogBySym.get(sym.toUpperCase()) ?? {
+            symbol: sym,
+            shortname: sym,
+            exchange: '',
+            type: 'STOCK',
+            country: inferCountryFromYahoo(sym, ''),
+          }
+      );
+    } else if (market === 'CRYPTO') {
+      universe = INSTRUMENT_CATALOG.filter((i) => i.type === 'CRYPTO');
+    } else if (market === 'GLOBAL') {
+      universe = INSTRUMENT_CATALOG.filter(
+        (i) => i.type === 'STOCK' && i.country !== 'ID' && i.country !== 'US'
+      );
+    } else if (market === 'US') {
+      universe = INSTRUMENT_CATALOG.filter((i) => i.type === 'STOCK' && i.country === 'US');
+    } else {
+      universe = INSTRUMENT_CATALOG.filter((i) => i.type === 'STOCK' && i.country === 'ID');
+    }
+
+    if (universe.length === 0) {
+      res.json({
+        market,
+        tf,
+        rows: [],
+        scannedAt: Date.now(),
+        totalUniverse: 0,
+        technicalReadyCount: 0,
+      });
+      return;
+    }
+
+    const payloadCacheKey =
+      market === 'WATCHLIST'
+        ? `WATCHLIST:${tf}:${universe.map((u) => u.symbol).join(',')}`
+        : `${market}:${tf}`;
+    if (!forceRefresh) {
+      const cachedPayload = getCached<Record<string, unknown>>(screenerPayloadCache, payloadCacheKey);
+      if (cachedPayload) {
+        res.json(cachedPayload);
+        return;
+      }
+    }
+
+    try {
+      // 1. Fast batch Yahoo Finance quote lookup (chunks of 50)
+      const symbolChunks: string[][] = [];
+      for (let i = 0; i < universe.length; i += 50) {
+        symbolChunks.push(universe.slice(i, i + 50).map((u) => u.symbol));
+      }
+      const quoteSettled = await Promise.allSettled(
+        symbolChunks.map((chunk) => yahooFinance.quote(chunk))
+      );
+      const quoteMap = new Map<string, Record<string, unknown>>();
+      for (const item of quoteSettled) {
+        if (item.status !== 'fulfilled') continue;
+        const arr = Array.isArray(item.value) ? item.value : [item.value];
+        for (const q of arr) {
+          const rec = q as unknown as Record<string, unknown>;
+          if (rec && typeof rec.symbol === 'string') {
+            quoteMap.set(rec.symbol.toUpperCase(), rec);
+          }
+        }
+      }
+
+      // 2. Concurrent OHLCV technical snapshot computation (EMA 9/20/50/200, RSI 14, MACD, Perf)
+      const nowMs = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const tfFetchSpec: Record<
+        ScreenerTimeframe,
+        { yfInterval: Parameters<typeof yahooFinance.chart>[1]['interval']; lookbackDays: number; resampleMs?: number; ttlMs: number }
+      > = {
+        '1d': { yfInterval: '1d', lookbackDays: 320, ttlMs: 120_000 },
+        '1w': { yfInterval: '1wk', lookbackDays: 1460, ttlMs: 180_000 },
+        '4h': { yfInterval: '60m', lookbackDays: 55, resampleMs: 4 * 60 * 60 * 1000, ttlMs: 90_000 },
+        '1h': { yfInterval: '60m', lookbackDays: 45, ttlMs: 60_000 },
+        '15m': { yfInterval: '15m', lookbackDays: 20, ttlMs: 45_000 },
+      };
+      const spec = tfFetchSpec[tf];
+      const period1 = new Date(nowMs - spec.lookbackDays * dayMs);
+      const period2 = new Date(nowMs);
+
+      const techMap = new Map<string, ScreenerTechnicalSnapshot>();
+      const pendingSymbols: string[] = [];
+
+      for (const item of universe) {
+        const techKey = `${item.symbol.toUpperCase()}:${tf}`;
+        if (!forceRefresh) {
+          const cachedTech = getCached<ScreenerTechnicalSnapshot>(screenerTechCache, techKey);
+          if (cachedTech) {
+            techMap.set(item.symbol.toUpperCase(), cachedTech);
+            continue;
+          }
+        }
+        pendingSymbols.push(item.symbol);
+      }
+
+      const fetchTechnicalForSymbol = async (sym: string): Promise<void> => {
+        const keyUpper = sym.toUpperCase();
+        const q = quoteMap.get(keyUpper);
+        const livePrice = typeof q?.regularMarketPrice === 'number' ? q.regularMarketPrice : null;
+        const sma50Fallback = typeof q?.fiftyDayAverage === 'number' ? q.fiftyDayAverage : null;
+        const sma200Fallback = typeof q?.twoHundredDayAverage === 'number' ? q.twoHundredDayAverage : null;
+
+        try {
+          const chartRes = await Promise.race([
+            yahooFinance.chart(sym, {
+              period1,
+              period2,
+              interval: spec.yfInterval,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Screener chart timeout')), 7000)
+            ),
+          ]);
+
+          let bars = normalizeQuotesToBars((chartRes?.quotes ?? []) as RawYahooQuote[]);
+          if (spec.resampleMs) {
+            bars = resampleBars(bars, spec.resampleMs);
+          }
+
+          const tech = computeScreenerTechnicals(bars, {
+            livePrice,
+            sma50Fallback,
+            sma200Fallback,
+          });
+          techMap.set(keyUpper, tech);
+          setCached(screenerTechCache, `${keyUpper}:${tf}`, tech, spec.ttlMs);
+        } catch {
+          const fallback = computeScreenerTechnicals([], {
+            sma50Fallback,
+            sma200Fallback,
+          });
+          techMap.set(keyUpper, fallback);
+        }
+      };
+
+      // Bounded concurrency pool (12 workers) keeps scan fast without overwhelming Yahoo or server
+      const workerCount = Math.min(12, pendingSymbols.length);
+      let cursorIdx = 0;
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (cursorIdx < pendingSymbols.length) {
+            const sym = pendingSymbols[cursorIdx++];
+            await fetchTechnicalForSymbol(sym);
+          }
+        })
+      );
+
+      const num = (v: unknown): number | null =>
+        typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+      const rows: ScreenerRow[] = [];
+      let technicalReadyCount = 0;
+
+      for (const item of universe) {
+        const keyUpper = item.symbol.toUpperCase();
+        const q = quoteMap.get(keyUpper);
+        const tech =
+          techMap.get(keyUpper) ??
+          computeScreenerTechnicals([], {
+            sma50Fallback: num(q?.fiftyDayAverage),
+            sma200Fallback: num(q?.twoHundredDayAverage),
+          });
+        if (tech.ema9 !== null) technicalReadyCount++;
+
+        const price = num(q?.regularMarketPrice) ?? 0;
+        const change = num(q?.regularMarketChange) ?? 0;
+        const changePercent = num(q?.regularMarketChangePercent) ?? 0;
+        if (price <= 0 && !q) continue;
+
+        const volume = num(q?.regularMarketVolume);
+        const avgVolume10d = num(q?.averageDailyVolume10Day);
+        const avgVolume3m = num(q?.averageDailyVolume3Month);
+        const volBaseline = avgVolume10d && avgVolume10d > 0 ? avgVolume10d : avgVolume3m;
+        const relVolume =
+          volume !== null && volBaseline !== null && volBaseline > 0
+            ? Math.round((volume / volBaseline) * 100) / 100
+            : null;
+
+        const rawTrailingYield = num(q?.trailingAnnualDividendYield);
+        const rawDivYield = num(q?.dividendYield);
+        const divYieldPct =
+          rawTrailingYield !== null
+            ? Math.round(rawTrailingYield * 10000) / 100
+            : rawDivYield !== null
+              ? Math.round(rawDivYield * 100) / 100
+              : null;
+
+        const high52 = num(q?.fiftyTwoWeekHigh);
+        const low52 = num(q?.fiftyTwoWeekLow);
+        const fiftyTwoWeekRangePos =
+          high52 !== null && low52 !== null && high52 > low52 && price > 0
+            ? Math.max(0, Math.min(100, Math.round(((price - low52) / (high52 - low52)) * 1000) / 10))
+            : null;
+
+        rows.push({
+          ...tech,
+          symbol: item.symbol,
+          shortName:
+            (typeof q?.shortName === 'string' && q.shortName) ||
+            (typeof q?.longName === 'string' && q.longName) ||
+            item.shortname,
+          exchange:
+            (typeof q?.fullExchangeName === 'string' && q.fullExchangeName) ||
+            (typeof q?.exchange === 'string' && q.exchange) ||
+            item.exchange,
+          country: item.country,
+          sector: item.sector,
+          currency: typeof q?.currency === 'string' ? q.currency : item.country === 'ID' ? 'IDR' : 'USD',
+          price,
+          change,
+          changePercent,
+          volume,
+          avgVolume10d,
+          avgVolume3m,
+          relVolume,
+          marketCap: num(q?.marketCap),
+          trailingPE: num(q?.trailingPE),
+          forwardPE: num(q?.forwardPE),
+          priceToBook: num(q?.priceToBook),
+          epsTTM: num(q?.epsTrailingTwelveMonths),
+          epsForward: num(q?.epsForward),
+          bookValue: num(q?.bookValue),
+          divYieldPct,
+          divRate: num(q?.trailingAnnualDividendRate),
+          beta: num(q?.beta),
+          analystRating: typeof q?.averageAnalystRating === 'string' ? q.averageAnalystRating : null,
+          fiftyTwoWeekLow: low52,
+          fiftyTwoWeekHigh: high52,
+          fiftyTwoWeekRangePos,
+        });
+      }
+
+      const payload = {
+        market,
+        tf,
+        rows,
+        scannedAt: Date.now(),
+        totalUniverse: universe.length,
+        technicalReadyCount,
+      };
+      setCached(screenerPayloadCache, payloadCacheKey, payload, 60_000);
+      res.json(payload);
+    } catch (err) {
+      console.error('[Yahoo Screener Error]:', err instanceof Error ? err.message : err);
+      res.status(502).json({ error: 'Unable to run stock screener scan right now.' });
     }
   });
 

@@ -99,6 +99,8 @@ import ChartIndicatorLegend from './ChartIndicatorLegend';
 import IndicatorSettingsModal from './IndicatorSettingsModal';
 import FloatingDrawingToolbar from './FloatingDrawingToolbar';
 import ChartSettingsModal from './ChartSettingsModal';
+import StockScreenerPanel from './StockScreenerPanel';
+import type { ScreenerPreset } from '../../shared/screenerModel';
 
 const DEFAULT_DRAWING_STYLE: DrawingOverlayStyle = {
   color: '#FFFFFF',
@@ -283,6 +285,22 @@ export default function TradingViewWorkspace({
   const [watchlistOpen, setWatchlistOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
+  const [screenerOpen, setScreenerOpen] = useState<boolean>(false);
+  const [screenerExpanded, setScreenerExpanded] = useState<boolean>(false);
+  const [savedScreenerPresets, setSavedScreenerPresets] = useState<ScreenerPreset[]>(() => {
+    if (initialCloudState?.savedScreenerPresets && Array.isArray(initialCloudState.savedScreenerPresets)) {
+      return initialCloudState.savedScreenerPresets;
+    }
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('meridian_screener_presets_v1');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as ScreenerPreset[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [customWatchlists, setCustomWatchlists] = useState<CustomWatchlist[]>(() =>
     initialCloudState?.customWatchlists && initialCloudState.customWatchlists.length > 0
       ? initialCloudState.customWatchlists
@@ -355,6 +373,7 @@ export default function TradingViewWorkspace({
     watchlistColumnPrefs,
     chartSettings,
     favoriteTimeframes,
+    savedScreenerPresets,
   }), [
     symbol,
     timeframe,
@@ -368,6 +387,7 @@ export default function TradingViewWorkspace({
     watchlistColumnPrefs,
     chartSettings,
     favoriteTimeframes,
+    savedScreenerPresets,
   ]);
   const workspaceSnapshotRef = useRef<CloudWorkspaceState>(buildCurrentWorkspaceSnapshot());
   workspaceSnapshotRef.current = buildCurrentWorkspaceSnapshot();
@@ -514,6 +534,7 @@ export default function TradingViewWorkspace({
     watchlistColumnPrefs,
     chartSettings,
     favoriteTimeframes,
+    savedScreenerPresets,
     initialCloudState,
   ]);
 
@@ -1845,6 +1866,8 @@ export default function TradingViewWorkspace({
         onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
         watchlistOpen={watchlistOpen}
         onToggleWatchlist={() => setWatchlistOpen((prev) => !prev)}
+        screenerOpen={screenerOpen}
+        onToggleScreener={() => setScreenerOpen((prev) => !prev)}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
         onScreenshot={handleScreenshot}
@@ -1865,7 +1888,7 @@ export default function TradingViewWorkspace({
         onSignOut={onSignOut ? handleSignOutWithFlush : undefined}
       />
 
-      <div className="flex flex-1 min-h-0 relative">
+      <div className={`flex flex-1 min-h-0 relative ${screenerOpen && screenerExpanded ? 'hidden' : ''}`}>
         <DrawingSidebar
           activeTool={activeTool}
           onSelectTool={handleSelectTool}
@@ -2154,6 +2177,31 @@ export default function TradingViewWorkspace({
           }}
         />
       </div>
+
+      <StockScreenerPanel
+        open={screenerOpen}
+        expanded={screenerExpanded}
+        onToggleExpand={() => setScreenerExpanded((prev) => !prev)}
+        onClose={() => {
+          setScreenerOpen(false);
+          setScreenerExpanded(false);
+        }}
+        activeSymbol={symbol}
+        watchlistSymbols={allWatchedSymbols}
+        flagMap={watchlistFlagMap}
+        savedPresets={savedScreenerPresets}
+        onSavePresets={(next) => {
+          setSavedScreenerPresets(next);
+          try {
+            window.localStorage.setItem('meridian_screener_presets_v1', JSON.stringify(next));
+          } catch {
+            // Ignore localStorage quota issues
+          }
+        }}
+        onSelectSymbol={(nextSym) => setSymbol(nextSym)}
+        onToggleFlag={handleToggleWatchlistFlag}
+        onAddToActiveWatchlist={(nextSym) => handleAddSymbolToTargetList(activeWatchlistRef, nextSym)}
+      />
 
       <SymbolSearchModal
         open={searchOpen}
