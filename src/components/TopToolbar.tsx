@@ -230,15 +230,15 @@ export default function TopToolbar({
   return (
     <header
       ref={toolbarRef}
-      className="h-12 shrink-0 flex items-center justify-between gap-2 px-2.5 bg-white dark:bg-[#000000] border-b border-slate-200 dark:border-[#1f2430] select-none z-50"
+      className="h-12 shrink-0 flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-2.5 bg-white dark:bg-[#000000] border-b border-slate-200 dark:border-[#1f2430] select-none z-50"
     >
       {/* Left: Symbol Search & Inline Quote Metadata */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1">
         <button
           type="button"
           onClick={onOpenSearch}
           aria-label={`Search symbol, current ${symbol}`}
-          className="h-8 px-2.5 flex items-center gap-2 rounded bg-slate-100 hover:bg-slate-200/80 dark:bg-[#12151e] dark:hover:bg-[#1d2230] border border-slate-200 dark:border-[#262c3a] text-slate-900 dark:text-[#f0f3fa] text-xs font-semibold tracking-tight transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-8 px-2 sm:px-2.5 flex items-center gap-1.5 sm:gap-2 rounded bg-slate-100 hover:bg-slate-200/80 dark:bg-[#12151e] dark:hover:bg-[#1d2230] border border-slate-200 dark:border-[#262c3a] text-slate-900 dark:text-[#f0f3fa] text-xs font-semibold tracking-tight transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <Search className="w-3.5 h-3.5 text-slate-500 dark:text-[#8b95a7]" />
           <span className="font-mono font-bold">{symbol}</span>
@@ -269,15 +269,15 @@ export default function TopToolbar({
         )}
 
         {meta && (
-          <div className="flex items-baseline gap-2 text-xs whitespace-nowrap overflow-hidden">
-            <span className="font-mono font-semibold text-xs sm:text-sm text-slate-900 dark:text-[#f0f3fa] tabular-nums">
+          <div className="hidden sm:flex items-baseline gap-2 text-xs whitespace-nowrap min-w-0 overflow-hidden shrink">
+            <span className="font-mono font-semibold text-xs sm:text-sm text-slate-900 dark:text-[#f0f3fa] tabular-nums shrink-0">
               {meta.price.toLocaleString(undefined, {
                 minimumFractionDigits: precision,
                 maximumFractionDigits: precision,
               })}
             </span>
             <span
-              className={`hidden sm:inline font-mono font-medium tabular-nums ${
+              className={`hidden lg:inline font-mono font-medium tabular-nums shrink-0 ${
                 isPositive ? 'text-[#16a34a] dark:text-[#089981]' : 'text-[#dc2626] dark:text-[#f23645]'
               }`}
             >
@@ -285,22 +285,22 @@ export default function TopToolbar({
               {meta.change.toFixed(precision)} ({isPositive ? '+' : ''}
               {meta.changePercent.toFixed(2)}%)
             </span>
-            <span aria-hidden="true" className="hidden xl:inline text-slate-300 dark:text-[#363e52]">
+            <span aria-hidden="true" className="hidden 2xl:inline text-slate-300 dark:text-[#363e52] shrink-0">
               ·
             </span>
-            <span className="hidden xl:inline text-slate-500 dark:text-[#8b95a7] truncate max-w-[140px]">
+            <span className="hidden 2xl:inline text-slate-500 dark:text-[#8b95a7] truncate max-w-[140px]">
               {meta.currency}
               {meta.exchangeName ? ` / ${meta.exchangeName}` : ''}
             </span>
           </div>
         )}
 
-        <div className="h-5 w-px bg-slate-200 dark:bg-[#262c3a] shrink-0" />
+        <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-[#262c3a] shrink-0" />
 
-        {/* Favorite Timeframe Controls (Max 8 shown on main bar) */}
-        <div className="flex items-center gap-0.5">
+        {/* Favorite Timeframe Controls (Max 8 shown on wide desktop bar) */}
+        <div className="flex items-center gap-0.5 shrink-0">
           {favoriteTimeframes.length > 0 && (
-            <div className="hidden md:flex items-center gap-0.5" role="group" aria-label="Favorite timeframes">
+            <div className="hidden xl:flex items-center gap-0.5" role="group" aria-label="Favorite timeframes">
               {favoriteTimeframes.map((tf) => {
                 const active = timeframe === tf.key;
                 return (
@@ -326,7 +326,7 @@ export default function TopToolbar({
           )}
 
           {/* Complete 18-Timeframe Dropdown (Minutes / Hours / Days with Star Favorites) */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setOpenMenu(openMenu === 'timeframes' ? null : 'timeframes')}
@@ -338,9 +338,9 @@ export default function TopToolbar({
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-[#b2b5be] dark:hover:bg-[#1e222d] dark:hover:text-[#f0f3fa]'
               }`}
             >
-              <span className="md:hidden px-0.5">{currentTf.label}</span>
+              <span className="xl:hidden px-0.5">{currentTf.label}</span>
               {!isCurrentFavorite && (
-                <span className="hidden md:inline px-0.5">{currentTf.label}</span>
+                <span className="hidden xl:inline px-0.5">{currentTf.label}</span>
               )}
               <ChevronDown className="w-3.5 h-3.5" />
             </button>
@@ -468,7 +468,7 @@ export default function TopToolbar({
         <div className="hidden lg:block h-5 w-px bg-slate-200 dark:bg-[#262c3a] shrink-0" />
 
         {/* Chart Type Selector */}
-        <div className="relative hidden sm:block">
+        <div className="relative hidden sm:block shrink-0">
           <button
             type="button"
             onClick={() => setOpenMenu(openMenu === 'chartType' ? null : 'chartType')}
@@ -481,7 +481,7 @@ export default function TopToolbar({
             }`}
           >
             <BarChart2 className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">
+            <span className="hidden 2xl:inline">
               {CHART_TYPES.find((c) => c.key === chartType)?.label ?? 'Candles'}
             </span>
             <ChevronDown className="w-3 h-3" />
@@ -515,20 +515,20 @@ export default function TopToolbar({
         </div>
 
         {/* TradingView-Style Flexible Indicators Manager */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setOpenMenu(openMenu === 'indicators' ? null : 'indicators')}
             aria-expanded={openMenu === 'indicators'}
             aria-label={`Technical indicators (${indicators.length} active)`}
-            className={`h-8 px-2.5 flex items-center gap-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`h-8 px-1.5 sm:px-2.5 flex items-center gap-1 sm:gap-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               openMenu === 'indicators'
                 ? 'bg-slate-200 text-slate-900 dark:bg-[#2a2e39] dark:text-[#f0f3fa]'
                 : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-[#b2b5be] dark:hover:bg-[#1e222d] dark:hover:text-[#f0f3fa]'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Indicators</span>
+            <span className="hidden lg:inline">Indicators</span>
             <span className="font-mono text-[11px] text-slate-400 dark:text-[#787b86]">
               ({indicators.length})
             </span>
@@ -699,7 +699,7 @@ export default function TopToolbar({
       </div>
 
       {/* Right: Screener, Scale, Theme, Watchlist, Screenshot, Fullscreen */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
         {onToggleScreener && (
           <button
             type="button"
@@ -768,7 +768,7 @@ export default function TopToolbar({
           {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </button>
 
-        <div className="h-5 w-px bg-slate-200 dark:bg-[#262c3a] mx-0.5" />
+        <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-[#262c3a] mx-0.5" />
 
         {username && (
           <div className="relative">
@@ -785,7 +785,7 @@ export default function TopToolbar({
                     ? 'Sinkronisasi cloud gagal (tersimpan di cache lokal)'
                     : 'Tersinkronisasi dengan Supabase Cloud'
               }
-              className={`h-8 px-2 flex items-center gap-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`h-8 px-1.5 sm:px-2 flex items-center gap-1 sm:gap-1.5 rounded text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 openMenu === 'account'
                   ? 'bg-slate-200 text-slate-900 dark:bg-[#2a2e39] dark:text-[#f0f3fa]'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-[#b2b5be] dark:hover:bg-[#1e222d] dark:hover:text-[#f0f3fa]'
