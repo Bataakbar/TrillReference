@@ -22,11 +22,12 @@ import {
   type StockTypeFilter,
 } from '../shared/instrumentCatalog.js';
 import {
+  SCREENER_FETCH_SPEC,
   computeScreenerTechnicals,
+  normalizeScreenerTimeframe,
   type ScreenerMarket,
   type ScreenerRow,
   type ScreenerTechnicalSnapshot,
-  type ScreenerTimeframe,
 } from '../shared/screenerModel.js';
 
 // Initialize yahoo-finance2 v3/v4 instance safely
@@ -736,9 +737,8 @@ export function createApiApp(): express.Express {
         ? rawMarket
         : 'ID';
 
-    const rawTf = typeof req.query.tf === 'string' ? req.query.tf.trim().toLowerCase() : '1d';
-    const tf: ScreenerTimeframe =
-      rawTf === '1w' || rawTf === '4h' || rawTf === '1h' || rawTf === '15m' ? rawTf : '1d';
+    const tf = normalizeScreenerTimeframe(req.query.tf);
+    const tfCfg = getTimeframeByKey(tf) ?? getTimeframeByKey('1d')!;
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
 
     let universe: CatalogInstrument[];
@@ -823,20 +823,8 @@ export function createApiApp(): express.Express {
 
       // 2. Concurrent OHLCV technical snapshot computation (EMA 9/20/50/200, RSI 14, MACD, Perf)
       const nowMs = Date.now();
-      const dayMs = 24 * 60 * 60 * 1000;
-      const tfFetchSpec: Record<
-        ScreenerTimeframe,
-        { yfInterval: Parameters<typeof yahooFinance.chart>[1]['interval']; lookbackDays: number; resampleMs?: number; ttlMs: number }
-      > = {
-        '1d': { yfInterval: '1d', lookbackDays: 400, ttlMs: 120_000 },
-        '1w': { yfInterval: '1wk', lookbackDays: 1460, ttlMs: 180_000 },
-        '4h': { yfInterval: '60m', lookbackDays: 55, resampleMs: 4 * 60 * 60 * 1000, ttlMs: 90_000 },
-        '1h': { yfInterval: '60m', lookbackDays: 45, ttlMs: 60_000 },
-        '15m': { yfInterval: '15m', lookbackDays: 20, ttlMs: 45_000 },
-      };
-      const spec = tfFetchSpec[tf];
-      const period1 = new Date(nowMs - spec.lookbackDays * dayMs);
-      const period2 = new Date(nowMs);
+      const spec = SCREENER_FETCH_SPEC[tf];
+      const windows = buildFetchWindows(nowMs, spec.lookbackDays, spec.maxDaysPerRequest);
 
       const techMap = new Map<string, ScreenerTechnicalSnapshot>();
       const pendingSymbols: string[] = [];
@@ -857,24 +845,22 @@ export function createApiApp(): express.Express {
         const keyUpper = sym.toUpperCase();
         const q = quoteMap.get(keyUpper);
         const livePrice = typeof q?.regularMarketPrice === 'number' ? q.regularMarketPrice : null;
-        const sma50Fallback = typeof q?.fiftyDayAverage === 'number' ? q.fiftyDayAverage : null;
-        const sma200Fallback = typeof q?.twoHundredDayAverage === 'number' ? q.twoHundredDayAverage : null;
+        const sma50Fallback =
+          tf === '1d' && typeof q?.fiftyDayAverage === 'number' ? q.fiftyDayAverage : null;
+        const sma200Fallback =
+          tf === '1d' && typeof q?.twoHundredDayAverage === 'number' ? q.twoHundredDayAverage : null;
 
         try {
           const chartRes = await Promise.race([
-            yahooFinance.chart(sym, {
-              period1,
-              period2,
-              interval: spec.yfInterval,
-            }),
+            fetchYahooWindows(sym, tfCfg.yfInterval, windows),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('Screener chart timeout')), 7000)
             ),
           ]);
 
-          let bars = normalizeQuotesToBars((chartRes?.quotes ?? []) as RawYahooQuote[]);
-          if (spec.resampleMs) {
-            bars = resampleBars(bars, spec.resampleMs);
+          let bars = normalizeQuotesToBars(chartRes.quotes);
+          if (tfCfg.resampleMs) {
+            bars = resampleBars(bars, tfCfg.resampleMs);
           }
 
           const tech = computeScreenerTechnicals(bars, {
@@ -917,8 +903,8 @@ export function createApiApp(): express.Express {
         const tech =
           techMap.get(keyUpper) ??
           computeScreenerTechnicals([], {
-            sma50Fallback: num(q?.fiftyDayAverage),
-            sma200Fallback: num(q?.twoHundredDayAverage),
+            sma50Fallback: tf === '1d' ? num(q?.fiftyDayAverage) : null,
+            sma200Fallback: tf === '1d' ? num(q?.twoHundredDayAverage) : null,
           });
         if (tech.ema9 !== null) technicalReadyCount++;
 

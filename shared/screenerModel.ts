@@ -1,8 +1,85 @@
 import { calcEMA, calcMovingAverageSeries, calcRMA, calcSMA } from './movingAverageMath.js';
-import type { OHLCVBar } from './timeframes.js';
+import { TIMEFRAMES, getTimeframeByKey, type OHLCVBar } from './timeframes.js';
 
 export type ScreenerMarket = 'ID' | 'US' | 'GLOBAL' | 'CRYPTO' | 'WATCHLIST';
-export type ScreenerTimeframe = '1d' | '1w' | '4h' | '1h' | '15m';
+export type ScreenerTimeframe =
+  | '1m'
+  | '2m'
+  | '3m'
+  | '5m'
+  | '10m'
+  | '15m'
+  | '30m'
+  | '45m'
+  | '1h'
+  | '2h'
+  | '3h'
+  | '4h'
+  | '1d'
+  | '1wk'
+  | '1mo'
+  | '3mo'
+  | '6mo'
+  | '1y';
+
+export const SCREENER_TIMEFRAMES: readonly ScreenerTimeframe[] = TIMEFRAMES.map(
+  (tf) => tf.key as ScreenerTimeframe
+);
+
+export const SCREENER_QUICK_TIMEFRAMES: readonly ScreenerTimeframe[] = [
+  '1d',
+  '1wk',
+  '4h',
+  '1h',
+  '15m',
+];
+
+export interface ScreenerTimeframeFetchSpec {
+  lookbackDays: number;
+  maxDaysPerRequest?: number;
+  ttlMs: number;
+}
+
+export const SCREENER_FETCH_SPEC: Record<ScreenerTimeframe, ScreenerTimeframeFetchSpec> = {
+  '1m': { lookbackDays: 6.5, maxDaysPerRequest: 7, ttlMs: 30_000 },
+  '2m': { lookbackDays: 14, ttlMs: 30_000 },
+  '3m': { lookbackDays: 6.5, maxDaysPerRequest: 7, ttlMs: 30_000 },
+  '5m': { lookbackDays: 30, ttlMs: 45_000 },
+  '10m': { lookbackDays: 30, ttlMs: 45_000 },
+  '15m': { lookbackDays: 45, ttlMs: 45_000 },
+  '30m': { lookbackDays: 55, ttlMs: 60_000 },
+  '45m': { lookbackDays: 55, ttlMs: 60_000 },
+  '1h': { lookbackDays: 90, ttlMs: 60_000 },
+  '2h': { lookbackDays: 150, ttlMs: 90_000 },
+  '3h': { lookbackDays: 210, ttlMs: 90_000 },
+  '4h': { lookbackDays: 240, ttlMs: 90_000 },
+  '1d': { lookbackDays: 400, ttlMs: 120_000 },
+  '1wk': { lookbackDays: 1825, ttlMs: 180_000 },
+  '1mo': { lookbackDays: 7300, ttlMs: 300_000 },
+  '3mo': { lookbackDays: 10950, ttlMs: 300_000 },
+  '6mo': { lookbackDays: 10950, ttlMs: 300_000 },
+  '1y': { lookbackDays: 14600, ttlMs: 300_000 },
+};
+
+const SCREENER_TF_SET = new Set<string>(SCREENER_TIMEFRAMES);
+
+/**
+ * Normalizes any raw timeframe query/state value (including legacy `1w` alias)
+ * to one of the 18 canonical keys shared with the chart toolbar.
+ */
+export function normalizeScreenerTimeframe(raw: unknown): ScreenerTimeframe {
+  if (typeof raw !== 'string') return '1d';
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === '1w') return '1wk';
+  if (SCREENER_TF_SET.has(trimmed)) {
+    return trimmed as ScreenerTimeframe;
+  }
+  const byKey = getTimeframeByKey(trimmed);
+  if (byKey && SCREENER_TF_SET.has(byKey.key)) {
+    return byKey.key as ScreenerTimeframe;
+  }
+  return '1d';
+}
 export type ScreenerTabId = 'overview' | 'technicals' | 'performance' | 'valuation' | 'dividends';
 export type ScreenerViewMode = 'table' | 'charts' | 'heatmap';
 export type ScreenerRefreshRate = 'manual' | '15s' | '60s';
@@ -1218,6 +1295,7 @@ export function computeScreenerTechnicals(
         : osScore;
 
   const closeHistory = closes
+    .slice(-700)
     .map((c) => roundFinite(c, 4))
     .filter((v): v is number => v !== null);
   const sparkline = closeHistory.slice(-30);

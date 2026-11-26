@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { OHLCVBar } from './timeframes';
+import { TIMEFRAMES, getTimeframeByKey, type OHLCVBar } from './timeframes';
 import {
   BUILT_IN_SCREENER_PRESETS,
   DEFAULT_SCREENER_FILTERS,
+  SCREENER_FETCH_SPEC,
+  SCREENER_TIMEFRAMES,
   computeScreenerTechnicals,
   countActiveScreenerFilters,
   detectCandlePattern,
@@ -12,6 +14,7 @@ import {
   layoutTreemapRects,
   matchesIndexMembership,
   normalizeScreenerFilters,
+  normalizeScreenerTimeframe,
   resolveRowEma,
   sortScreenerRows,
   type ScreenerRow,
@@ -377,4 +380,41 @@ test('manual EMA period and (>, <, <=, >=) operators evaluate dynamically via cl
     sortedByEma21Diff.map((r) => r.symbol),
     ['UP.JK', 'EQ.JK', 'DOWN.JK']
   );
+});
+
+test('screener timeframes cover all 18 chart TIMEFRAMES and respect Yahoo retention bounds', () => {
+  assert.equal(SCREENER_TIMEFRAMES.length, 18);
+  assert.deepEqual(
+    SCREENER_TIMEFRAMES,
+    TIMEFRAMES.map((t) => t.key)
+  );
+
+  // Legacy 1w alias maps cleanly to canonical 1wk
+  assert.equal(normalizeScreenerTimeframe('1w'), '1wk');
+  assert.equal(normalizeScreenerTimeframe('1W'), '1wk');
+  assert.equal(normalizeScreenerTimeframe('4H'), '4h');
+  assert.equal(normalizeScreenerTimeframe('12M'), '1d'); // unknown falls back safely to 1d
+  assert.equal(normalizeScreenerTimeframe('1y'), '1y');
+  assert.equal(normalizeScreenerTimeframe('invalid'), '1d');
+
+  for (const tf of SCREENER_TIMEFRAMES) {
+    assert.equal(normalizeScreenerTimeframe(tf), tf);
+    const cfg = getTimeframeByKey(tf);
+    assert.ok(cfg, `Expected TimeframeDefinition for ${tf}`);
+    const spec = SCREENER_FETCH_SPEC[tf];
+    assert.ok(spec.lookbackDays > 0);
+    assert.ok(spec.ttlMs > 0);
+    if (cfg.daysBack !== null) {
+      assert.ok(
+        spec.lookbackDays <= cfg.daysBack,
+        `${tf} lookbackDays (${spec.lookbackDays}) must fit Yahoo daysBack (${cfg.daysBack})`
+      );
+    }
+    if (cfg.maxDaysPerRequest) {
+      assert.ok(
+        spec.lookbackDays <= cfg.maxDaysPerRequest,
+        `${tf} lookbackDays (${spec.lookbackDays}) should stay within single request limit (${cfg.maxDaysPerRequest})`
+      );
+    }
+  }
 });

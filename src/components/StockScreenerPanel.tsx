@@ -28,13 +28,19 @@ import {
   X,
 } from 'lucide-react';
 import { STOCK_SECTOR_OPTIONS } from '../../shared/instrumentCatalog';
-import { getPricePrecision } from '../../shared/timeframes';
+import {
+  TIMEFRAMES,
+  getTimeframeByKey,
+  type TimeframeDefinition,
+  type TimeframeGroup,
+} from '../../shared/timeframes';
 import {
   BUILT_IN_SCREENER_PRESETS,
   DEFAULT_SCREENER_FILTERS,
   NUMERIC_RULE_FIELD_LABELS,
   SCREENER_COLUMNS,
   SCREENER_INDEX_OPTIONS,
+  SCREENER_QUICK_TIMEFRAMES,
   SCREENER_TABS,
   countActiveScreenerFilters,
   filterScreenerRows,
@@ -68,6 +74,7 @@ import {
   type ScreenerViewMode,
   type TechRatingFilter,
 } from '../../shared/screenerModel';
+import { getPricePrecision } from '../../shared/timeframes';
 import { formatCompactVolume } from '../utils/drawingStorage';
 import { getTickerAvatar, type FlagColor, type WatchlistFlagMap } from '../utils/watchlistModel';
 import { FlagRibbonIcon } from './FlagRibbon';
@@ -111,12 +118,18 @@ const MARKET_OPTIONS: ReadonlyArray<{ id: ScreenerMarket; label: string; badge: 
   { id: 'WATCHLIST', label: 'My Watchlist', badge: '★ Watchlist' },
 ];
 
-const TF_OPTIONS: ReadonlyArray<{ id: ScreenerTimeframe; label: string }> = [
-  { id: '1d', label: '1D' },
-  { id: '1w', label: '1W' },
-  { id: '4h', label: '4H' },
-  { id: '1h', label: '1H' },
-  { id: '15m', label: '15m' },
+const QUICK_TF_DEFINITIONS: ReadonlyArray<TimeframeDefinition> = SCREENER_QUICK_TIMEFRAMES
+  .map((key) => getTimeframeByKey(key))
+  .filter((tf): tf is TimeframeDefinition => Boolean(tf));
+
+const SCREENER_TF_GROUPS: ReadonlyArray<{
+  key: TimeframeGroup;
+  title: string;
+  items: ReadonlyArray<TimeframeDefinition>;
+}> = [
+  { key: 'minutes', title: 'MINUTES', items: TIMEFRAMES.filter((t) => t.group === 'minutes') },
+  { key: 'hours', title: 'HOURS', items: TIMEFRAMES.filter((t) => t.group === 'hours') },
+  { key: 'days', title: 'DAYS / LONGER', items: TIMEFRAMES.filter((t) => t.group === 'days') },
 ];
 
 const EMA_OPERATOR_OPTIONS: ReadonlyArray<{
@@ -248,6 +261,8 @@ export default function StockScreenerPanel({
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const [tfPopoverOpen, setTfPopoverOpen] = useState(false);
+  const [tfPopoverPos, setTfPopoverPos] = useState<{ top: number; left: number }>({ top: 120, left: 16 });
   const [emaPopoverOpen, setEmaPopoverOpen] = useState(false);
   const [emaPopoverPos, setEmaPopoverPos] = useState<{ top: number; left: number }>({ top: 160, left: 16 });
   const [draftEmaPeriod, setDraftEmaPeriod] = useState<string>('9');
@@ -264,6 +279,8 @@ export default function StockScreenerPanel({
   const [draftValMax, setDraftValMax] = useState<string>('5');
 
   const panelRef = useRef<HTMLDivElement>(null);
+  const tfBtnRef = useRef<HTMLButtonElement>(null);
+  const tfPopoverRef = useRef<HTMLDivElement>(null);
   const emaBtnRef = useRef<HTMLButtonElement>(null);
   const emaPopoverRef = useRef<HTMLDivElement>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
@@ -365,6 +382,7 @@ export default function StockScreenerPanel({
         setPresetMenuOpen(false);
         setViewMenuOpen(false);
         setColumnsMenuOpen(false);
+        setTfPopoverOpen(false);
         setEmaPopoverOpen(false);
         setAllFiltersOpen(false);
       }
@@ -375,6 +393,12 @@ export default function StockScreenerPanel({
         setPresetMenuOpen(false);
         setViewMenuOpen(false);
         setColumnsMenuOpen(false);
+      }
+      if (
+        !tfPopoverRef.current?.contains(target) &&
+        !tfBtnRef.current?.contains(target)
+      ) {
+        setTfPopoverOpen(false);
       }
       if (
         !emaPopoverRef.current?.contains(target) &&
@@ -416,6 +440,16 @@ export default function StockScreenerPanel({
     [filteredRows, sort, filters.emaPeriod]
   );
   const activeFilterCount = useMemo(() => countActiveScreenerFilters(filters), [filters]);
+  const activeTfDef = useMemo(
+    () => getTimeframeByKey(tf) ?? getTimeframeByKey('1d') ?? TIMEFRAMES[0],
+    [tf]
+  );
+
+  const visibleQuickTfDefs = useMemo(() => {
+    const inQuick = QUICK_TF_DEFINITIONS.some((item) => item.key === activeTfDef.key);
+    return inQuick ? QUICK_TF_DEFINITIONS : [...QUICK_TF_DEFINITIONS, activeTfDef];
+  }, [activeTfDef]);
+
   const allPresets = useMemo(
     () => [...BUILT_IN_SCREENER_PRESETS, ...savedPresets],
     [savedPresets]
@@ -719,6 +753,7 @@ export default function StockScreenerPanel({
                 setPresetMenuOpen((v) => !v);
                 setColumnsMenuOpen(false);
                 setViewMenuOpen(false);
+                setTfPopoverOpen(false);
               }}
               className="h-7 px-2.5 rounded bg-white dark:bg-[#171b26] hover:bg-slate-100 dark:hover:bg-[#1e2433] border border-slate-200 dark:border-[#2a3142] text-xs font-medium text-slate-800 dark:text-[#f0f3fa] flex items-center gap-1.5 cursor-pointer"
             >
@@ -831,19 +866,24 @@ export default function StockScreenerPanel({
             )}
           </div>
 
-          {/* Technical Timeframe Selector */}
+          {/* Technical Timeframe Selector (Quick Bar + All 18 Chart Timeframes) */}
           <div
             role="group"
             aria-label="Screener indicator timeframe"
             className="flex items-center rounded bg-slate-200/70 dark:bg-[#171b26] p-0.5 border border-slate-200 dark:border-[#262c3a]"
           >
-            {TF_OPTIONS.map((opt) => (
+            {visibleQuickTfDefs.map((opt) => (
               <button
-                key={opt.id}
+                key={opt.key}
                 type="button"
-                onClick={() => setTf(opt.id)}
+                title={opt.resampleMs ? `${opt.fullLabel} (Resampled)` : opt.fullLabel}
+                onClick={() => {
+                  setTf(opt.key as ScreenerTimeframe);
+                  setTfPopoverOpen(false);
+                }}
+                aria-pressed={tf === opt.key}
                 className={`h-6 px-2 rounded text-[11px] font-mono font-medium transition-colors cursor-pointer ${
-                  tf === opt.id
+                  tf === opt.key
                     ? 'bg-white dark:bg-[#2962ff] text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-[#8b95a7] hover:text-slate-900 dark:hover:text-white'
                 }`}
@@ -851,6 +891,41 @@ export default function StockScreenerPanel({
                 {opt.label}
               </button>
             ))}
+
+            <button
+              ref={tfBtnRef}
+              type="button"
+              data-testid="screener-tf-more"
+              aria-haspopup="dialog"
+              aria-expanded={tfPopoverOpen}
+              aria-label={`Pilih semua timeframe screener (aktif: ${activeTfDef.fullLabel})`}
+              title="Pilih semua timeframe (Minutes / Hours / Days)"
+              onClick={() => {
+                if (!tfPopoverOpen && tfBtnRef.current) {
+                  const rect = tfBtnRef.current.getBoundingClientRect();
+                  const popW = Math.min(284, window.innerWidth - 16);
+                  const popH = 268;
+                  const left = Math.max(8, Math.min(rect.right - popW, window.innerWidth - popW - 8));
+                  const top =
+                    rect.bottom + 6 + popH <= window.innerHeight - 8
+                      ? rect.bottom + 6
+                      : Math.max(8, rect.top - popH - 6);
+                  setTfPopoverPos({ top, left });
+                }
+                setTfPopoverOpen((v) => !v);
+                setPresetMenuOpen(false);
+                setViewMenuOpen(false);
+                setColumnsMenuOpen(false);
+                setEmaPopoverOpen(false);
+              }}
+              className={`h-6 px-1.5 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                tfPopoverOpen
+                  ? 'bg-white dark:bg-[#2962ff] text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-[#8b95a7] hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
@@ -1038,6 +1113,7 @@ export default function StockScreenerPanel({
               setEmaPopoverPos({ top, left });
             }
             setEmaPopoverOpen((v) => !v);
+            setTfPopoverOpen(false);
             setPresetMenuOpen(false);
             setViewMenuOpen(false);
             setColumnsMenuOpen(false);
@@ -1409,7 +1485,7 @@ export default function StockScreenerPanel({
           <div className="h-full flex flex-col items-center justify-center gap-2.5 text-xs text-slate-500 dark:text-[#8b95a7] py-10">
             <Loader2 className="w-5 h-5 animate-spin text-[#2962ff]" />
             <span>
-              Memindai {MARKET_OPTIONS.find((m) => m.id === market)?.label} ({tf.toUpperCase()}) &amp; menghitung EMA, Oscillators, Candlestick Patterns…
+              Memindai {MARKET_OPTIONS.find((m) => m.id === market)?.label} ({activeTfDef.label}) &amp; menghitung EMA, Oscillators, Candlestick Patterns…
             </span>
           </div>
         ) : errorMsg ? (
@@ -2398,6 +2474,62 @@ export default function StockScreenerPanel({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* All 18 Screener Indicator Timeframes Popover */}
+      {tfPopoverOpen && (
+        <div
+          ref={tfPopoverRef}
+          role="dialog"
+          aria-label="Semua Timeframe Screener"
+          data-testid="screener-tf-popover"
+          style={{ top: tfPopoverPos.top, left: tfPopoverPos.left }}
+          className="fixed w-[284px] max-w-[calc(100vw-16px)] rounded-xl bg-white dark:bg-[#161a24] border border-slate-200 dark:border-[#2a3142] shadow-2xl p-3 z-[90] space-y-2.5"
+        >
+          <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200 dark:border-[#242a38]">
+            <span className="text-xs font-semibold text-slate-900 dark:text-[#f0f3fa]">
+              Timeframe Screener
+            </span>
+            <span className="text-[11px] font-mono text-[#2962ff] dark:text-[#60a5fa]">
+              {activeTfDef.fullLabel}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {SCREENER_TF_GROUPS.map((group) => (
+              <div key={group.key} className="space-y-1">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-[#787b86]">
+                  {group.title}
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {group.items.map((item) => {
+                    const isActive = tf === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        data-testid={`screener-tf-option-${item.key}`}
+                        aria-pressed={isActive}
+                        title={item.resampleMs ? `${item.fullLabel} (Resampled)` : item.fullLabel}
+                        onClick={() => {
+                          setTf(item.key as ScreenerTimeframe);
+                          setTfPopoverOpen(false);
+                        }}
+                        className={`h-7 px-1.5 rounded text-xs font-mono font-medium transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-[#2962ff] text-white font-semibold shadow-2xs'
+                            : 'bg-slate-100/90 dark:bg-[#1e2433] text-slate-700 dark:text-[#cbd5e1] hover:bg-slate-200 dark:hover:bg-[#2a3246]'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>
