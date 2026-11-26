@@ -104,6 +104,20 @@ export default function App() {
   const handleSignOut = useCallback(async () => {
     if (!supabase) return;
     await supabase.auth.signOut();
+    try {
+      const toRemove: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (key && key.startsWith('meridian_')) {
+          toRemove.push(key);
+        }
+      }
+      for (const k of toRemove) {
+        window.localStorage.removeItem(k);
+      }
+    } catch {
+      // Ignore storage cleanup issues
+    }
     hydratedUserIdRef.current = null;
     setSession(null);
     setCloudState(null);

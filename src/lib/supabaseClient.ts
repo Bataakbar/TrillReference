@@ -2,20 +2,20 @@ import { createClient, type SupabaseClient, type User } from '@supabase/supabase
 
 export const AUTH_EMAIL_DOMAIN = 'trillreference.app';
 
-function readEnv(key: 'VITE_SUPABASE_URL' | 'VITE_SUPABASE_ANON_KEY'): string {
+function readStaticSupabaseEnv(): { url: string; anonKey: string } {
   try {
-    const env = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env;
-    if (env && typeof env[key] === 'string') {
-      return env[key]!.trim();
-    }
+    // Vite requires literal import.meta.env.VITE_* property access for static bundle replacement
+    const url = import.meta.env.VITE_SUPABASE_URL ?? '';
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+    return { url: String(url).trim(), anonKey: String(anonKey).trim() };
   } catch {
-    // Fallback for non-Vite runtimes (e.g. Node unit tests)
+    return { url: '', anonKey: '' };
   }
-  return '';
 }
 
-export const SUPABASE_URL = readEnv('VITE_SUPABASE_URL');
-export const SUPABASE_ANON_KEY = readEnv('VITE_SUPABASE_ANON_KEY');
+const resolvedEnv = readStaticSupabaseEnv();
+export const SUPABASE_URL = resolvedEnv.url;
+export const SUPABASE_ANON_KEY = resolvedEnv.anonKey;
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 export const supabase: SupabaseClient | null = isSupabaseConfigured
