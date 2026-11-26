@@ -1,6 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dispose, init, type Chart, type KLineData, type OverlayEvent } from 'klinecharts';
-import { Loader2, Maximize2, Minus, Plus, RefreshCw, RotateCcw, X } from 'lucide-react';
+import {
+  Bookmark,
+  CandlestickChart,
+  Loader2,
+  Maximize2,
+  Minus,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
 import {
   TIMEFRAMES,
   getPricePrecision,
@@ -215,7 +227,7 @@ export default function TradingViewWorkspace({
     initialCloudState?.chartType || 'candle_solid'
   );
   const [yAxisScale, setYAxisScale] = useState<YAxisScaleType>(
-    initialCloudState?.yAxisScale || 'normal'
+    initialCloudState?.yAxisScale === 'logarithm' ? 'logarithm' : 'normal'
   );
   const [theme, setTheme] = useState<ThemeMode>(initialCloudState?.theme || 'dark');
   const [meta, setMeta] = useState<ChartMeta | null>(null);
@@ -282,6 +294,10 @@ export default function TradingViewWorkspace({
   const [isCompactViewport, setIsCompactViewport] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 640 : false
   );
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+  const [mobileToolsOpen, setMobileToolsOpen] = useState<boolean>(false);
   const [watchlistOpen, setWatchlistOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
@@ -1064,9 +1080,12 @@ export default function TradingViewWorkspace({
     }
   }, [symbol, timeframe, reloadTick]);
 
-  // Track narrow viewports for responsive chart tooltip behavior
+  // Track narrow/mobile viewports for responsive chart tooltip & mobile layout
   useEffect(() => {
-    const onResize = () => setIsCompactViewport(window.innerWidth < 640);
+    const onResize = () => {
+      setIsCompactViewport(window.innerWidth < 640);
+      setIsMobileViewport(window.innerWidth < 768);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -1588,13 +1607,9 @@ export default function TradingViewWorkspace({
     handleUndoDrawing,
   ]);
 
-  // Y-axis scale cycling
+  // Y-axis scale toggle between stock price (normal) and logarithmic (never trap right ruler in %)
   const handleCycleYAxisScale = useCallback(() => {
-    setYAxisScale((prev) => {
-      if (prev === 'normal') return 'logarithm';
-      if (prev === 'logarithm') return 'percentage';
-      return 'normal';
-    });
+    setYAxisScale((prev) => (prev === 'normal' ? 'logarithm' : 'normal'));
   }, []);
 
   // Horizontal X-axis zoom & Fit All controls (supports sub-pixel zoom down to 0.05 px/bar)
@@ -1845,7 +1860,7 @@ export default function TradingViewWorkspace({
       data-symbol={symbol}
       data-timeframe={timeframe}
       data-theme={theme}
-      className="flex flex-col w-screen h-screen bg-slate-50 dark:bg-[#000000] text-slate-900 dark:text-[#e6eaf2] overflow-hidden"
+      className="flex flex-col w-screen h-dvh bg-slate-50 dark:bg-[#000000] text-slate-900 dark:text-[#e6eaf2] overflow-hidden"
     >
       <TopToolbar
         symbol={symbol}
@@ -1888,8 +1903,9 @@ export default function TradingViewWorkspace({
         onSignOut={onSignOut ? handleSignOutWithFlush : undefined}
       />
 
-      <div className={`flex flex-1 min-h-0 relative ${screenerOpen && screenerExpanded ? 'hidden' : ''}`}>
+      <div className={`flex flex-1 min-h-0 relative ${screenerOpen && (screenerExpanded || isMobileViewport) ? 'hidden' : ''}`}>
         <DrawingSidebar
+          mobileOpen={mobileToolsOpen}
           activeTool={activeTool}
           onSelectTool={handleSelectTool}
           onCancelDrawing={cancelPendingDrawing}
@@ -2059,7 +2075,7 @@ export default function TradingViewWorkspace({
               role="group"
               aria-label="Chart horizontal zoom controls"
               data-testid="chart-zoom-controls"
-              className="absolute bottom-9 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-white/85 dark:bg-[#161a25]/85 border border-slate-200/90 dark:border-[#2a3142]/90 shadow-lg backdrop-blur-xs opacity-55 hover:opacity-100 focus-within:opacity-100 transition-opacity"
+              className="absolute bottom-9 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 px-1 py-0.5 rounded-md bg-white/90 dark:bg-[#161a25]/90 border border-slate-200/90 dark:border-[#2a3142]/90 shadow-lg backdrop-blur-xs opacity-85 sm:opacity-55 hover:opacity-100 focus-within:opacity-100 transition-opacity"
             >
               <button
                 type="button"
@@ -2139,7 +2155,7 @@ export default function TradingViewWorkspace({
                 overlayInteractedRef.current = false;
               });
             }}
-            className="w-full h-full"
+            className="w-full h-full touch-none"
           />
         </main>
 
@@ -2180,7 +2196,7 @@ export default function TradingViewWorkspace({
 
       <StockScreenerPanel
         open={screenerOpen}
-        expanded={screenerExpanded}
+        expanded={screenerExpanded || isMobileViewport}
         onToggleExpand={() => setScreenerExpanded((prev) => !prev)}
         onClose={() => {
           setScreenerOpen(false);
@@ -2198,10 +2214,100 @@ export default function TradingViewWorkspace({
             // Ignore localStorage quota issues
           }
         }}
-        onSelectSymbol={(nextSym) => setSymbol(nextSym)}
+        onSelectSymbol={(nextSym) => {
+          setSymbol(nextSym);
+          if (isMobileViewport) {
+            setScreenerOpen(false);
+            setScreenerExpanded(false);
+          }
+        }}
         onToggleFlag={handleToggleWatchlistFlag}
         onAddToActiveWatchlist={(nextSym) => handleAddSymbolToTargetList(activeWatchlistRef, nextSym)}
       />
+
+      {/* Mobile Bottom Navigation Bar (TradingView Mobile style on phones < 768px) */}
+      <nav
+        aria-label="Mobile workspace navigation"
+        data-testid="mobile-bottom-nav"
+        className="md:hidden shrink-0 flex items-stretch justify-around bg-white dark:bg-[#090b10] border-t border-slate-200 dark:border-[#1f2430] px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] z-50 select-none"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setScreenerOpen(false);
+            setScreenerExpanded(false);
+            setWatchlistOpen(false);
+          }}
+          className={`flex-1 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+            !screenerOpen && !watchlistOpen
+              ? 'text-[#2962ff] dark:text-[#60a5fa]'
+              : 'text-slate-500 dark:text-[#8b95a7]'
+          }`}
+        >
+          <CandlestickChart className="w-4 h-4" />
+          <span>Chart</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setWatchlistOpen(false);
+            setScreenerOpen((prev) => {
+              const next = !prev;
+              setScreenerExpanded(next);
+              return next;
+            });
+          }}
+          className={`flex-1 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+            screenerOpen
+              ? 'text-[#2962ff] dark:text-[#60a5fa]'
+              : 'text-slate-500 dark:text-[#8b95a7]'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          <span>Screener</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setScreenerOpen(false);
+            setScreenerExpanded(false);
+            setWatchlistOpen(false);
+            setMobileToolsOpen((prev) => !prev);
+          }}
+          className={`relative flex-1 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+            mobileToolsOpen || activeTool
+              ? 'text-[#2962ff] dark:text-[#60a5fa]'
+              : 'text-slate-500 dark:text-[#8b95a7]'
+          }`}
+        >
+          <Pencil className="w-4 h-4" />
+          <span>Draw</span>
+          {drawingCount > 0 && (
+            <span className="absolute top-1 right-4 min-w-[14px] h-[14px] px-1 rounded-full bg-[#2962ff] text-white text-[9px] font-mono flex items-center justify-center">
+              {drawingCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setScreenerOpen(false);
+            setScreenerExpanded(false);
+            setWatchlistOpen((prev) => !prev);
+          }}
+          className={`flex-1 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
+            watchlistOpen
+              ? 'text-[#2962ff] dark:text-[#60a5fa]'
+              : 'text-slate-500 dark:text-[#8b95a7]'
+          }`}
+        >
+          <Bookmark className="w-4 h-4" />
+          <span>Watchlist</span>
+        </button>
+      </nav>
 
       <SymbolSearchModal
         open={searchOpen}

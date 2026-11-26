@@ -27,6 +27,7 @@ interface DrawingSidebarProps {
   drawingCount: number;
   onUndo: () => void;
   onClearAll: () => void;
+  mobileOpen?: boolean;
 }
 
 export default function DrawingSidebar({
@@ -42,6 +43,7 @@ export default function DrawingSidebar({
   drawingCount,
   onUndo,
   onClearAll,
+  mobileOpen = false,
 }: DrawingSidebarProps) {
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const [lastUsedByGroup, setLastUsedByGroup] = useState<Record<string, string>>({
@@ -83,7 +85,9 @@ export default function DrawingSidebar({
     <aside
       ref={sidebarRef}
       aria-label="Drawing tools toolbar"
-      className="w-12 shrink-0 bg-white dark:bg-[#000000] border-r border-slate-200 dark:border-[#1f2430] flex flex-col items-center py-2 gap-1 select-none z-25"
+      className={`${
+        mobileOpen ? 'flex' : 'hidden'
+      } md:flex w-12 shrink-0 bg-white dark:bg-[#000000] border-r border-slate-200 dark:border-[#1f2430] flex-col items-center py-2 gap-1 select-none z-25`}
     >
       {/* Crosshair / Select Cursor */}
       <button
@@ -143,7 +147,7 @@ export default function DrawingSidebar({
               <div
                 role="menu"
                 aria-label={`${group.label} tools`}
-                className={`absolute left-11 ${openUpward ? 'bottom-0' : 'top-0'} w-60 max-h-[72vh] overflow-y-auto thin-scrollbar rounded-md bg-white dark:bg-[#1e222d] border border-slate-200 dark:border-[#2a2e39] shadow-2xl py-1.5 px-1.5 z-50 flex flex-col gap-0.5`}
+                className={`absolute left-11 ${openUpward ? 'bottom-0' : 'top-0'} w-60 max-w-[calc(100vw-60px)] max-h-[68dvh] overflow-y-auto thin-scrollbar rounded-md bg-white dark:bg-[#1e222d] border border-slate-200 dark:border-[#2a2e39] shadow-2xl py-1.5 px-1.5 z-50 flex flex-col gap-0.5`}
               >
                 <div className="px-2.5 py-1.5 text-[11px] font-medium text-slate-500 dark:text-[#8b95a7] border-b border-slate-100 dark:border-[#2a2e39] mb-1">
                   {group.label}

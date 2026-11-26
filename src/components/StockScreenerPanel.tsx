@@ -629,7 +629,7 @@ export default function StockScreenerPanel({
             value={filters.q}
             onChange={(e) => updateFilter('q', e.target.value)}
             placeholder="Filter ticker..."
-            className="h-7 w-36 pl-6 pr-2 rounded-md bg-slate-100 dark:bg-[#161a24] border border-slate-200 dark:border-[#262c3a] text-xs text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 focus:outline-none focus:border-[#2962ff]"
+            className="h-7 w-32 sm:w-36 pl-6 pr-2 rounded-md bg-slate-100 dark:bg-[#161a24] border border-slate-200 dark:border-[#262c3a] text-base sm:text-xs text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 focus:outline-none focus:border-[#2962ff]"
           />
         </div>
 
@@ -930,9 +930,9 @@ export default function StockScreenerPanel({
                     <th
                       key={colKey}
                       onClick={() => handleHeaderSort(colKey)}
-                      className={`px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors ${
+                      className={`px-2 sm:px-3 py-2 font-medium whitespace-nowrap cursor-pointer hover:text-slate-900 dark:hover:text-white transition-colors ${
                         colIdx === 0
-                          ? 'sticky left-0 z-30 bg-slate-100 dark:bg-[#131722] border-r border-slate-200/70 dark:border-[#242a38]/70 min-w-[230px]'
+                          ? 'sticky left-0 z-30 bg-slate-100 dark:bg-[#131722] border-r border-slate-200/70 dark:border-[#242a38]/70 min-w-[148px] max-w-[166px] sm:min-w-[230px] sm:max-w-none'
                           : ''
                       }`}
                     >
@@ -973,13 +973,13 @@ export default function StockScreenerPanel({
                         return (
                           <td
                             key={colKey}
-                            className={`px-3 py-2 whitespace-nowrap sticky left-0 z-10 border-r border-slate-200/70 dark:border-[#242a38]/70 ${
+                            className={`px-2 sm:px-3 py-2 whitespace-nowrap sticky left-0 z-10 border-r border-slate-200/70 dark:border-[#242a38]/70 max-w-[166px] sm:max-w-none ${
                               isSelected
                                 ? 'bg-[#edf2ff] dark:bg-[#162038]'
                                 : 'bg-white dark:bg-[#0d1017] group-hover:bg-slate-50 dark:group-hover:bg-[#161b26]'
                             }`}
                           >
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 sm:gap-2">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -994,22 +994,22 @@ export default function StockScreenerPanel({
                               </button>
 
                               <span
-                                className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                className="hidden sm:flex w-6 h-6 rounded-full items-center justify-center text-[10px] font-bold text-white shrink-0"
                                 style={{ backgroundColor: avatar.color }}
                               >
                                 {avatar.letter}
                               </span>
 
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-bold text-slate-900 dark:text-[#f0f3fa]">
+                                <div className="flex items-center gap-1">
+                                  <span className="font-mono font-bold text-slate-900 dark:text-[#f0f3fa] truncate">
                                     {row.symbol}
                                   </span>
-                                  <span className="text-[10px] px-1 rounded bg-slate-100 dark:bg-[#1d2332] text-slate-500 dark:text-[#8b95a7]">
+                                  <span className="hidden sm:inline text-[10px] px-1 rounded bg-slate-100 dark:bg-[#1d2332] text-slate-500 dark:text-[#8b95a7]">
                                     {row.exchange}
                                   </span>
                                 </div>
-                                <div className="text-[11px] text-slate-500 dark:text-[#787b86] truncate max-w-[150px]">
+                                <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#787b86] truncate max-w-[90px] sm:max-w-[150px]">
                                   {row.shortName}
                                 </div>
                               </div>
@@ -1023,7 +1023,7 @@ export default function StockScreenerPanel({
                                   }}
                                   title="Add to active watchlist"
                                   aria-label={`Add ${row.symbol} to watchlist`}
-                                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-400 hover:text-[#2962ff] hover:bg-slate-200/60 dark:hover:bg-[#262c3a] transition-opacity cursor-pointer"
+                                  className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 p-1 rounded text-slate-400 hover:text-[#2962ff] hover:bg-slate-200/60 dark:hover:bg-[#262c3a] transition-opacity cursor-pointer"
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                 </button>

@@ -508,11 +508,11 @@ export default function SymbolSearchModal({
       role="dialog"
       aria-modal="true"
       aria-label={isWatchlistMode ? 'Add symbol to watchlist' : 'Symbol search'}
-      className="fixed inset-0 bg-black/60 flex justify-center items-start pt-12 sm:pt-16 px-4 z-[60]"
+      className="fixed inset-0 bg-black/60 flex justify-center items-start pt-6 sm:pt-16 px-2.5 sm:px-4 z-[60]"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-lg bg-white dark:bg-[#1e222d] border border-slate-200 dark:border-[#2a2e39] shadow-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-2xl max-h-[88dvh] rounded-lg bg-white dark:bg-[#1e222d] border border-slate-200 dark:border-[#2a2e39] shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => {
           e.stopPropagation();
           setOpenDropdown(null);
@@ -549,7 +549,7 @@ export default function SymbolSearchModal({
                 value={sourcesSearch}
                 onChange={(e) => setSourcesSearch(e.target.value)}
                 placeholder="Search country or exchange (e.g. Indonesia, IDX, NASDAQ)..."
-                className="flex-1 bg-transparent text-sm text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 dark:placeholder:text-[#787b86] outline-none"
+                className="flex-1 bg-transparent text-base sm:text-sm text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 dark:placeholder:text-[#787b86] outline-none"
               />
             </div>
 
@@ -740,7 +740,7 @@ export default function SymbolSearchModal({
                     }
                   }
                 }}
-                className="flex-1 bg-transparent text-sm text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 dark:placeholder:text-[#787b86] outline-none"
+                className="flex-1 bg-transparent text-base sm:text-sm text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 dark:placeholder:text-[#787b86] outline-none"
               />
               {query && (
                 <button

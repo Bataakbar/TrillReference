@@ -251,7 +251,7 @@ export default function WatchlistPanel({
       <aside
         ref={panelRef}
         aria-label="Market watchlist"
-        className="fixed right-0 top-12 bottom-0 w-76 lg:static lg:w-[296px] shrink-0 bg-white dark:bg-[#000000] border-l border-slate-200 dark:border-[#1f2430] flex flex-col z-40 select-none relative"
+        className="fixed right-0 top-12 bottom-[52px] md:bottom-0 w-[min(88vw,320px)] lg:static lg:w-[296px] shrink-0 bg-white dark:bg-[#000000] border-l border-slate-200 dark:border-[#1f2430] flex flex-col z-40 select-none relative"
       >
         {/* Header: Watchlist Switcher Dropdown + Add Symbol (+) & Settings (...) */}
         <div className="h-10 px-2.5 border-b border-slate-200 dark:border-[#1f2430] flex items-center justify-between shrink-0 relative">

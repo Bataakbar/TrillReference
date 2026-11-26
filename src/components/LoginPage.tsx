@@ -61,7 +61,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
   return (
     <div
       data-testid="login-page"
-      className="min-h-screen w-screen bg-[#070708] text-neutral-100 flex items-center justify-center p-5 sm:p-8 relative overflow-hidden"
+      className="min-h-dvh w-screen bg-[#070708] text-neutral-100 flex items-center justify-center p-4 sm:p-8 relative overflow-y-auto"
     >
       {/* Monochrome stock chart background artwork */}
       <img
@@ -120,7 +120,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Masukkan username"
-                className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-black/55 border border-white/[0.12] text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/50 focus:ring-2 focus:ring-white/10 transition-all"
+                className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-black/55 border border-white/[0.12] text-base sm:text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/50 focus:ring-2 focus:ring-white/10 transition-all"
               />
             </div>
           </div>
@@ -142,7 +142,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Masukkan password"
-                className="w-full h-11 pl-10 pr-11 rounded-xl bg-black/55 border border-white/[0.12] text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/50 focus:ring-2 focus:ring-white/10 transition-all"
+                className="w-full h-11 pl-10 pr-11 rounded-xl bg-black/55 border border-white/[0.12] text-base sm:text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/50 focus:ring-2 focus:ring-white/10 transition-all"
               />
               <button
                 type="button"

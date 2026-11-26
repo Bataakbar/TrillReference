@@ -55,23 +55,23 @@ export default function FloatingDrawingToolbar({
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const dragStateRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  // Close sub-popovers when toolbar hides or outside click happens
+  // Close sub-popovers when toolbar hides or outside tap/click happens (supports mouse & touch)
   useEffect(() => {
     if (!visible) {
       setOpenMenu(null);
       return;
     }
-    const onPointerDown = (e: MouseEvent) => {
+    const onPointerDown = (e: PointerEvent) => {
       if (barRef.current && !barRef.current.contains(e.target as Node)) {
         setOpenMenu(null);
       }
     };
-    window.addEventListener('mousedown', onPointerDown);
-    return () => window.removeEventListener('mousedown', onPointerDown);
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
   }, [visible]);
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       const drag = dragStateRef.current;
       if (!drag) return;
       setOffset({
@@ -82,11 +82,13 @@ export default function FloatingDrawingToolbar({
     const onUp = () => {
       dragStateRef.current = null;
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, []);
 
@@ -108,12 +110,12 @@ export default function FloatingDrawingToolbar({
       style={{
         transform: `translate(calc(-50% + ${offset.x}px), ${offset.y}px)`,
       }}
-      className="absolute top-3 left-1/2 z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-white/95 dark:bg-[#16181d]/95 border border-slate-200 dark:border-[#2e323d] shadow-2xl backdrop-blur-sm select-none"
+      className="absolute top-3 left-1/2 z-30 max-w-[calc(100vw-16px)] flex flex-wrap items-center justify-center gap-0.5 px-1.5 py-1 rounded-lg bg-white/95 dark:bg-[#16181d]/95 border border-slate-200 dark:border-[#2e323d] shadow-2xl backdrop-blur-sm select-none"
     >
-      {/* 6-dot Drag Handle (matching TradingView screenshot) */}
+      {/* 6-dot Drag Handle (supports mouse & touch dragging) */}
       <button
         type="button"
-        onMouseDown={(e) => {
+        onPointerDown={(e) => {
           e.preventDefault();
           dragStateRef.current = {
             startX: e.clientX,
@@ -124,7 +126,7 @@ export default function FloatingDrawingToolbar({
         }}
         aria-label="Drag drawing toolbar"
         title={`Drag toolbar (${toolLabel})`}
-        className="w-5 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:text-[#667085] dark:hover:text-[#cbd5e1] cursor-grab active:cursor-grabbing"
+        className="w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:text-[#667085] dark:hover:text-[#cbd5e1] cursor-grab active:cursor-grabbing touch-none"
       >
         <GripVertical className="w-3.5 h-3.5" />
       </button>
