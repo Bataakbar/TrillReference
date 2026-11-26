@@ -6,9 +6,9 @@ export interface AxisTickLike {
   text: string;
 }
 
-export const TV_DARK_GRID_COLOR = 'rgba(240, 243, 250, 0.085)';
-export const TV_LIGHT_GRID_COLOR = 'rgba(15, 23, 42, 0.09)';
-export const TV_DEFAULT_GRID_WIDTH_PX = 64;
+export const TV_DARK_GRID_COLOR = 'rgba(224, 229, 240, 0.115)';
+export const TV_LIGHT_GRID_COLOR = 'rgba(15, 23, 42, 0.11)';
+export const TV_DEFAULT_GRID_WIDTH_PX = 52;
 export const TV_DEFAULT_GRID_HEIGHT_PX = 50;
 const MIN_Y_LABEL_GAP_PX = 32;
 
@@ -36,7 +36,7 @@ function clampCoordRange(ticks: AxisTickLike[], maxCoord: number): AxisTickLike[
 
 /**
  * Subdivides sparse X-axis time ticks into an evenly spaced vertical grid
- * (~64px columns like TradingView) locked to existing labeled ticks so columns
+ * (~52px columns like TradingView) locked to existing labeled ticks so columns
  * pan/zoom smoothly with candlesticks without colliding date labels.
  */
 export function subdivideXAxisGridTicks(
@@ -48,7 +48,7 @@ export function subdivideXAxisGridTicks(
     return [...defaultTicks];
   }
 
-  const target = Math.max(44, Math.min(96, targetBoxWidth));
+  const target = Math.max(38, Math.min(96, targetBoxWidth));
   const sorted = [...defaultTicks]
     .filter((t) => Number.isFinite(t.coord))
     .sort((a, b) => a.coord - b.coord);
@@ -84,11 +84,11 @@ export function subdivideXAxisGridTicks(
 
     const next = sorted[i + 1];
     const gap = next.coord - cur.coord;
-    const segments = gap > target * 1.3 ? Math.min(14, Math.max(2, Math.round(gap / target))) : 1;
+    const segments = gap > target * 1.15 ? Math.min(16, Math.max(2, Math.round(gap / target))) : 1;
     const stepPx = gap / segments;
 
-    if (i === 0) firstStep = Math.max(36, Math.min(110, stepPx));
-    if (i === sorted.length - 2) lastStep = Math.max(36, Math.min(110, stepPx));
+    if (i === 0) firstStep = Math.max(32, Math.min(110, stepPx));
+    if (i === sorted.length - 2) lastStep = Math.max(32, Math.min(110, stepPx));
 
     for (let k = 1; k < segments; k++) {
       out.push({

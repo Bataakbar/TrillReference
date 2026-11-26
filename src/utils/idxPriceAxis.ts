@@ -5,8 +5,6 @@ import { subdivideXAxisGridTicks, subdivideYAxisGridTicks } from './chartGrid';
 
 export const TV_XAXIS_NAME = 'tv_grid_x';
 
-let chartAxesRegistered = false;
-
 function valueToLogarithm(value: number): number {
   return value < 0 ? -Math.log10(1 - value) : Math.log10(1 + value);
 }
@@ -17,12 +15,10 @@ function logarithmToValue(value: number): number {
 
 /**
  * Registers TradingView-matched Y-axis and X-axis templates on KLineChart v10:
- * - Uniform ~64x50px grid boxes ("kotak-kotak") across both IDX and global markets
+ * - Uniform ~52x50px grid boxes ("kotak-kotak") across both IDX and global markets
  * - BEI tick-size ("fraksi harga") snapping & deduplication for `.JK` tickers
  */
 export function registerChartAxes(): void {
-  if (chartAxesRegistered) return;
-  chartAxesRegistered = true;
 
   registerXAxis({
     name: TV_XAXIS_NAME,

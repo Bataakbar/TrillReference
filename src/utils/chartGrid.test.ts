@@ -8,7 +8,7 @@ import {
   type AxisTickLike,
 } from './chartGrid';
 
-test('subdivideXAxisGridTicks turns wide X-axis intervals into ~64px TradingView columns without duplicating text labels', () => {
+test('subdivideXAxisGridTicks turns wide X-axis intervals into ~52px TradingView columns without duplicating text labels', () => {
   const defaultTicks: AxisTickLike[] = [
     { coord: 160, value: 1, text: '11-24' },
     { coord: 400, value: 2, text: '11-25' },
@@ -24,12 +24,27 @@ test('subdivideXAxisGridTicks turns wide X-axis intervals into ~64px TradingView
     ['11-24', '11-25', '11-26', '11-27']
   );
 
-  // Subdivided ticks produce >12 evenly spaced vertical columns including left/right margins
-  assert.ok(ticks.length >= 13);
+  // Subdivided ticks produce ~18 evenly spaced ~48-52px vertical columns including left/right margins
+  assert.ok(ticks.length >= 16);
   for (let i = 1; i < ticks.length; i++) {
     const gap = ticks[i].coord - ticks[i - 1].coord;
-    assert.ok(gap >= 40 && gap <= 80, `Expected column width ~60px, got ${gap}`);
+    assert.ok(gap >= 36 && gap <= 72, `Expected column width ~52px, got ${gap}`);
   }
+});
+
+test('subdivideXAxisGridTicks subdivides 70px gaps into ~35px columns at default 52px box width', () => {
+  const mediumTicks: AxisTickLike[] = [
+    { coord: 100, value: 1, text: '10:00' },
+    { coord: 170, value: 2, text: '11:00' },
+    { coord: 240, value: 3, text: '12:00' },
+  ];
+  const ticks = subdivideXAxisGridTicks(mediumTicks, 400, TV_DEFAULT_GRID_WIDTH_PX);
+  const inner = ticks.filter((t) => t.coord >= 100 && t.coord <= 240);
+  assert.equal(inner.length, 5);
+  assert.deepEqual(
+    inner.filter((t) => t.text !== '').map((t) => t.text),
+    ['10:00', '11:00', '12:00']
+  );
 });
 
 test('subdivideXAxisGridTicks handles single or empty default ticks safely', () => {
