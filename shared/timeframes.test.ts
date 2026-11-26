@@ -15,6 +15,10 @@ import {
   resampleBars,
   computeQuoteSummary,
   getPricePrecision,
+  isIdxSymbol,
+  getIdxTickSize,
+  snapToIdxTick,
+  deduplicateIdxAxisTicks,
 } from './timeframes';
 
 test('TIMEFRAMES contains all 18 complete timeframes with unique keys and round-trip periods', () => {
@@ -334,5 +338,43 @@ test('hasReachedEarliestHistory and parseFirstTradeDateMs detect IPO cutoffs cle
       firstTradeMs: aaplFirstTrade,
     }),
     false
+  );
+});
+
+test('IDX tick size (fraksi harga) and crosshair price snapping match TradingView BEI tiers', () => {
+  assert.equal(isIdxSymbol('ptro.jk'), true);
+  assert.equal(isIdxSymbol('BBCA.JK'), true);
+  assert.equal(isIdxSymbol('AAPL'), false);
+
+  // BEI / IDX official fraksi harga tiers
+  assert.equal(getIdxTickSize(27), 1);     // < 200 -> Rp 1 (GOTO)
+  assert.equal(getIdxTickSize(302), 2);    // 200..499 -> Rp 2 (VKTR/SAFE)
+  assert.equal(getIdxTickSize(905), 5);    // 500..1999 -> Rp 5
+  assert.equal(getIdxTickSize(2277), 10);  // 2000..4999 -> Rp 10 (PTRO)
+  assert.equal(getIdxTickSize(5900), 25);  // >= 5000 -> Rp 25 (BBCA)
+
+  // Snapping prevents odd intermediate prices like 2277 on PTRO or 5760 on BBCA
+  assert.equal(snapToIdxTick(2277), 2280);
+  assert.equal(snapToIdxTick(2273), 2270);
+  assert.equal(snapToIdxTick(5760), 5750);
+  assert.equal(snapToIdxTick(5765), 5775);
+  assert.equal(snapToIdxTick(301), 302);
+  assert.equal(snapToIdxTick(1234), 1235);
+  assert.equal(snapToIdxTick(27.4), 27);
+
+  // Deduplicates zoomed Y-axis ticks while preferring exact tick-aligned entries
+  const deduped = deduplicateIdxAxisTicks([
+    { text: '2,270', value: '2270', coord: 200 },
+    { text: '2,280', value: '2276', coord: 170 },
+    { text: '2,280', value: '2280', coord: 150 },
+    { text: '2,290', value: '2290', coord: 100 },
+  ]);
+  assert.deepEqual(
+    deduped.map((t) => ({ text: t.text, value: t.value })),
+    [
+      { text: '2,270', value: '2270' },
+      { text: '2,280', value: '2280' },
+      { text: '2,290', value: '2290' },
+    ]
   );
 });

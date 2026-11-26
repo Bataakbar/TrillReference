@@ -770,3 +770,48 @@ export function getPricePrecision(symbol: string, lastPrice?: number): number {
   if (lastPrice !== undefined && lastPrice > 0 && lastPrice < 1) return 5;
   return 2;
 }
+
+export function isIdxSymbol(symbol: string): boolean {
+  return symbol.trim().toUpperCase().endsWith('.JK');
+}
+
+/** Official Bursa Efek Indonesia (IDX / BEI) tick size ("fraksi harga") tiers. */
+export function getIdxTickSize(price: number): number {
+  if (!Number.isFinite(price) || price < 200) return 1;
+  if (price < 500) return 2;
+  if (price < 2000) return 5;
+  if (price < 5000) return 10;
+  return 25;
+}
+
+export function snapToIdxTick(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return Math.round(value);
+  const step = getIdxTickSize(value);
+  return Math.round(value / step) * step;
+}
+
+/**
+ * Deduplicates Y-axis ticks when zoom produces sub-fraksi raw intervals that snap to the same
+ * IDX price text (e.g. two ticks snapping to "2,280"), preferring exact tick-aligned entries.
+ */
+export function deduplicateIdxAxisTicks<T extends { text: string; value: number | string }>(
+  ticks: ReadonlyArray<T>
+): T[] {
+  const byText = new Map<string, T>();
+  for (const tick of ticks) {
+    const numVal = typeof tick.value === 'number' ? tick.value : Number(tick.value);
+    const existing = byText.get(tick.text);
+    if (!existing) {
+      byText.set(tick.text, tick);
+      continue;
+    }
+    const existingNum = typeof existing.value === 'number' ? existing.value : Number(existing.value);
+    const isCurrentExact = Number.isFinite(numVal) && numVal === snapToIdxTick(numVal);
+    const isExistingExact = Number.isFinite(existingNum) && existingNum === snapToIdxTick(existingNum);
+    if (isCurrentExact && !isExistingExact) {
+      byText.set(tick.text, tick);
+    }
+  }
+  return Array.from(byText.values());
+}

@@ -39,6 +39,7 @@ import {
   saveChartSettings,
   type ChartDisplaySettings,
 } from '../utils/chartStyles';
+import { registerIdxYAxes, resolveCandleYAxisName } from '../utils/idxPriceAxis';
 import {
   DEFAULT_BAR_SPACE,
   MAX_BAR_SPACE,
@@ -824,6 +825,7 @@ export default function TradingViewWorkspace({
 
     registerCustomOverlays();
     registerCustomIndicators();
+    registerIdxYAxes();
 
     const chart = init(el, {
       styles: buildChartStyles('dark', 'candle_solid', window.innerWidth < 640, chartSettings),
@@ -1097,13 +1099,13 @@ export default function TradingViewWorkspace({
     );
   }, [theme, chartType, isCompactViewport, chartSettings]);
 
-  // Apply Y-axis scale mode (Auto / Log / Percentage) via KLineChart v10 overrideYAxis
+  // Apply Y-axis scale mode (Price / Log) & IDX tick-size formatting via KLineChart v10 overrideYAxis
   useEffect(() => {
     chartRef.current?.overrideYAxis({
       paneId: 'candle_pane',
-      name: yAxisScale,
+      name: resolveCandleYAxisName(symbol, yAxisScale),
     });
-  }, [yAxisScale]);
+  }, [symbol, yAxisScale]);
 
   // Fetch live Yahoo Finance quotes for Watchlist
   const fetchWatchlistQuotes = useCallback(async (symbolsToFetch: string[]) => {
