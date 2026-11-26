@@ -41,6 +41,7 @@ import { FlagColorSwatchRow, FlagRibbonIcon } from './FlagRibbon';
 
 interface WatchlistPanelProps {
   open: boolean;
+  screenerOpen?: boolean;
   onClose: () => void;
   activeSymbol: string;
   activeMeta: ChartMeta | null;
@@ -69,6 +70,7 @@ interface WatchlistPanelProps {
 
 export default function WatchlistPanel({
   open,
+  screenerOpen = false,
   onClose,
   activeSymbol,
   activeMeta,
@@ -243,7 +245,7 @@ export default function WatchlistPanel({
     <>
       {/* Mobile backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+        className={`fixed inset-0 bg-black/50 lg:hidden ${screenerOpen ? 'z-10' : 'z-30'}`}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -251,7 +253,9 @@ export default function WatchlistPanel({
       <aside
         ref={panelRef}
         aria-label="Market watchlist"
-        className="fixed right-0 top-12 bottom-[52px] md:bottom-0 w-[min(88vw,320px)] lg:static lg:w-[296px] shrink-0 bg-white dark:bg-[#000000] border-l border-slate-200 dark:border-[#1f2430] flex flex-col z-40 select-none relative"
+        className={`fixed lg:relative right-0 top-12 bottom-[52px] md:bottom-0 w-[min(88vw,320px)] lg:top-auto lg:bottom-auto lg:right-auto lg:w-[296px] lg:h-full lg:min-h-0 lg:overflow-hidden shrink-0 bg-white dark:bg-[#000000] border-l border-slate-200 dark:border-[#1f2430] flex flex-col select-none ${
+          screenerOpen ? 'z-20 lg:z-10' : 'z-40 lg:z-10'
+        }`}
       >
         {/* Header: Watchlist Switcher Dropdown + Add Symbol (+) & Settings (...) */}
         <div className="h-10 px-2.5 border-b border-slate-200 dark:border-[#1f2430] flex items-center justify-between shrink-0 relative">
@@ -648,7 +652,7 @@ export default function WatchlistPanel({
         <div
           role="listbox"
           aria-label="Watchlist symbols"
-          className="flex-1 overflow-y-auto thin-scrollbar divide-y divide-slate-100/80 dark:divide-[#141720]"
+          className="flex-1 min-h-0 overflow-y-auto thin-scrollbar divide-y divide-slate-100/80 dark:divide-[#141720]"
         >
           {visibleSymbols.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs text-slate-500 dark:text-[#787b86] space-y-2">
@@ -846,12 +850,12 @@ export default function WatchlistPanel({
 
         {/* Bottom Collapsible TradingView Instrument Details Split Pane */}
         {activeMeta && (
-          <div className="border-t-2 border-slate-200 dark:border-[#1f2430] bg-slate-50/70 dark:bg-[#000000] shrink-0">
+          <div className="border-t-2 border-slate-200 dark:border-[#1f2430] bg-slate-50/70 dark:bg-[#000000] shrink-0 max-h-[55%] flex flex-col min-h-0">
             <button
               type="button"
               onClick={() => setDetailsExpanded((prev) => !prev)}
               aria-expanded={detailsExpanded}
-              className="w-full px-3 py-1.5 flex items-center justify-between text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:text-[#787b86] dark:hover:text-[#d1d4dc] cursor-pointer"
+              className="w-full px-3 py-1.5 flex items-center justify-between text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:text-[#787b86] dark:hover:text-[#d1d4dc] cursor-pointer shrink-0"
             >
               <span className="tracking-wide uppercase">Details</span>
               {detailsExpanded ? (
@@ -862,7 +866,7 @@ export default function WatchlistPanel({
             </button>
 
             {detailsExpanded && (
-              <div className="px-3 pb-3 pt-0.5 relative">
+              <div className="px-3 pb-3 pt-0.5 relative overflow-y-auto thin-scrollbar min-h-0">
                 {/* Instrument Title Row */}
                 <div className="flex items-start justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">

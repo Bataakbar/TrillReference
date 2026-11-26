@@ -1905,7 +1905,11 @@ export default function TradingViewWorkspace({
         onSignOut={onSignOut ? handleSignOutWithFlush : undefined}
       />
 
-      <div className={`flex flex-1 min-h-0 relative ${screenerOpen && (screenerExpanded || isMobileViewport) ? 'hidden' : ''}`}>
+      <div
+        className={`flex flex-1 min-h-0 relative lg:overflow-hidden ${
+          screenerOpen && (screenerExpanded || isMobileViewport) ? 'hidden' : ''
+        }`}
+      >
         <DrawingSidebar
           mobileOpen={mobileToolsOpen}
           activeTool={activeTool}
@@ -2163,6 +2167,7 @@ export default function TradingViewWorkspace({
 
         <WatchlistPanel
           open={watchlistOpen}
+          screenerOpen={screenerOpen}
           onClose={() => setWatchlistOpen(false)}
           activeSymbol={symbol}
           activeMeta={meta}

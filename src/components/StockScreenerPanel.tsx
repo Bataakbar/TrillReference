@@ -244,7 +244,7 @@ export default function StockScreenerPanel({
   const [scannedAt, setScannedAt] = useState<number | null>(null);
   const [totalUniverse, setTotalUniverse] = useState<number>(0);
 
-  // Popovers & Modals
+  // Popovers & Modals & Resizing
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
@@ -254,6 +254,8 @@ export default function StockScreenerPanel({
   const [allFiltersOpen, setAllFiltersOpen] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
+  const [customHeightPx, setCustomHeightPx] = useState<number | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
 
   // Draft custom rule builder state inside All Filters modal
   const [draftField, setDraftField] = useState<ScreenerNumericField>('ema9DiffPct');
@@ -264,7 +266,15 @@ export default function StockScreenerPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const emaBtnRef = useRef<HTMLButtonElement>(null);
   const emaPopoverRef = useRef<HTMLDivElement>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+      resizeCleanupRef.current = null;
+    };
+  }, []);
 
   const runScan = useCallback(
     async (opts?: { forceRefresh?: boolean }) => {
@@ -566,15 +576,110 @@ export default function StockScreenerPanel({
     VIEW_MODE_OPTIONS.find((v) => v.id === viewMode) ?? VIEW_MODE_OPTIONS[0];
   const ActiveViewIcon = activeViewMeta.Icon;
 
+  const getScreenerHeightBounds = () => {
+    const parentH =
+      panelRef.current?.parentElement?.getBoundingClientRect().height ?? window.innerHeight;
+    return {
+      minH: 140,
+      maxH: Math.max(240, Math.round(parentH - 108)),
+    };
+  };
+
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (expanded) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const panelEl = panelRef.current;
+    if (!panelEl) return;
+
+    e.preventDefault();
+    resizeCleanupRef.current?.();
+
+    const startY = e.clientY;
+    const startH = panelEl.getBoundingClientRect().height;
+    const { minH, maxH } = getScreenerHeightBounds();
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore synthetic events
+    }
+
+    setIsResizing(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const deltaY = startY - ev.clientY;
+      const nextH = Math.round(Math.max(minH, Math.min(maxH, startH + deltaY)));
+      setCustomHeightPx(nextH);
+    };
+
+    const cleanup = () => {
+      setIsResizing(false);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+      resizeCleanupRef.current = null;
+    };
+
+    resizeCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
+  };
+
+  const handleResizeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (expanded) return;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const curH =
+      customHeightPx ??
+      Math.round(panelRef.current?.getBoundingClientRect().height ?? window.innerHeight * 0.46);
+    const { minH, maxH } = getScreenerHeightBounds();
+    const delta = e.key === 'ArrowUp' ? 48 : -48;
+    setCustomHeightPx(Math.round(Math.max(minH, Math.min(maxH, curH + delta))));
+  };
+
   return (
     <section
       ref={panelRef}
       data-testid="stock-screener-panel"
       aria-label="Stock Screener"
-      className={`flex flex-col bg-white dark:bg-[#0d1017] border-t border-slate-200 dark:border-[#1f2430] select-none z-30 ${
-        expanded ? 'flex-1 min-h-0' : 'h-[48%] min-h-[300px] max-h-[560px] shrink-0'
+      style={!expanded && customHeightPx !== null ? { height: `${customHeightPx}px` } : undefined}
+      className={`relative flex flex-col bg-white dark:bg-[#0d1017] border-t border-slate-200 dark:border-[#1f2430] select-none z-30 ${
+        expanded
+          ? 'flex-1 min-h-0'
+          : customHeightPx !== null
+            ? 'min-h-[140px] shrink-0'
+            : 'h-[46%] min-h-[140px] shrink-0'
       }`}
     >
+      {/* Draggable Vertical Splitter Handle (TradingView-style Up/Down Resize) */}
+      {!expanded && (
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation="horizontal"
+          aria-label="Seret atas/bawah untuk atur tinggi Stock Screener"
+          data-testid="screener-resize-handle"
+          title="Seret atas/bawah untuk atur tinggi Screener (klik 2x reset)"
+          onPointerDown={handleResizePointerDown}
+          onKeyDown={handleResizeKeyDown}
+          onDoubleClick={() => setCustomHeightPx(null)}
+          className={`group h-2.5 w-full cursor-ns-resize touch-none flex items-center justify-center shrink-0 border-b border-slate-200/70 dark:border-[#1a1f2b] transition-colors focus:outline-none ${
+            isResizing
+              ? 'bg-[#2962ff]/20'
+              : 'bg-slate-50/90 dark:bg-[#11141d] hover:bg-[#2962ff]/12'
+          }`}
+        >
+          <span
+            className={`w-12 h-1 rounded-full transition-colors ${
+              isResizing
+                ? 'bg-[#2962ff]'
+                : 'bg-slate-300 dark:bg-[#2f374a] group-hover:bg-[#2962ff]'
+            }`}
+          />
+        </div>
+      )}
+
       {/* Top Screener Controls Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 border-b border-slate-200 dark:border-[#1f2430] bg-slate-50/80 dark:bg-[#11141d]">
         <div className="flex items-center gap-2 flex-wrap">
