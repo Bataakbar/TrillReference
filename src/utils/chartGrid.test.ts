@@ -8,7 +8,7 @@ import {
   type AxisTickLike,
 } from './chartGrid';
 
-test('subdivideXAxisGridTicks turns wide X-axis intervals into ~52px TradingView columns without duplicating text labels', () => {
+test('subdivideXAxisGridTicks turns wide X-axis intervals into ~44px TradingView columns without duplicating text labels', () => {
   const defaultTicks: AxisTickLike[] = [
     { coord: 160, value: 1, text: '11-24' },
     { coord: 400, value: 2, text: '11-25' },
@@ -24,15 +24,18 @@ test('subdivideXAxisGridTicks turns wide X-axis intervals into ~52px TradingView
     ['11-24', '11-25', '11-26', '11-27']
   );
 
-  // Subdivided ticks produce ~18 evenly spaced ~48-52px vertical columns including left/right margins
-  assert.ok(ticks.length >= 16);
+  // Subdivided unlabeled grid lines snap cleanly to integer coordinates for sharp 1px strokes
+  assert.ok(ticks.filter((t) => t.text === '').every((t) => Number.isInteger(t.coord)));
+
+  // Subdivided ticks produce ~20+ evenly spaced ~40-48px vertical columns including left/right margins
+  assert.ok(ticks.length >= 19);
   for (let i = 1; i < ticks.length; i++) {
     const gap = ticks[i].coord - ticks[i - 1].coord;
-    assert.ok(gap >= 36 && gap <= 72, `Expected column width ~52px, got ${gap}`);
+    assert.ok(gap >= 32 && gap <= 62, `Expected column width ~44px, got ${gap}`);
   }
 });
 
-test('subdivideXAxisGridTicks subdivides 70px gaps into ~35px columns at default 52px box width', () => {
+test('subdivideXAxisGridTicks subdivides 70px gaps into ~35px columns at default 44px box width', () => {
   const mediumTicks: AxisTickLike[] = [
     { coord: 100, value: 1, text: '10:00' },
     { coord: 170, value: 2, text: '11:00' },
