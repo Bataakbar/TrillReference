@@ -126,10 +126,10 @@ export default function App() {
 
   if (!isSupabaseConfigured) {
     return (
-      <div className="min-h-screen w-screen bg-[#0b0e14] text-[#e6eaf2] flex items-center justify-center p-6">
-        <div className="max-w-md rounded-xl bg-[#131722] border border-[#2a3142] p-6 space-y-2 text-sm">
-          <h1 className="font-semibold text-[#f0f3fa]">Konfigurasi Supabase Diperlukan</h1>
-          <p className="text-xs text-[#98a2b3]">
+      <div className="min-h-screen w-screen bg-[#070708] text-neutral-100 flex items-center justify-center p-6">
+        <div className="max-w-md rounded-2xl bg-[#0d0d0f] border border-white/[0.12] p-6 space-y-2 text-sm">
+          <h1 className="font-semibold text-white">Konfigurasi Supabase Diperlukan</h1>
+          <p className="text-xs text-neutral-400">
             Set environment variable <code className="font-mono">VITE_SUPABASE_URL</code> dan{' '}
             <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> agar autentikasi dan
             penyimpanan cloud dapat berjalan.
@@ -141,12 +141,12 @@ export default function App() {
 
   if (checkingAuth || (session && hydratingWorkspace)) {
     return (
-      <div className="min-h-screen w-screen bg-[#0b0e14] text-[#e6eaf2] flex flex-col items-center justify-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-[#2962ff]/15 border border-[#2962ff]/40 flex items-center justify-center text-[#5b9cf6]">
+      <div className="min-h-screen w-screen bg-[#070708] text-neutral-100 flex flex-col items-center justify-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-white/[0.08] border border-white/[0.14] flex items-center justify-center text-white">
           <CandlestickChart className="w-5 h-5" />
         </div>
-        <div className="flex items-center gap-2 text-xs text-[#98a2b3]">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2962ff]" />
+        <div className="flex items-center gap-2 text-xs text-neutral-400">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
           <span>
             {checkingAuth ? 'Memeriksa sesi login…' : 'Memuat chart & gambar dari Supabase…'}
           </span>

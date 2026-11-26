@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { CandlestickChart, Eye, EyeOff, Loader2, Lock, ShieldCheck, User } from 'lucide-react';
+import {
+  ArrowRight,
+  CandlestickChart,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  ShieldCheck,
+  User,
+} from 'lucide-react';
+import loginBgImage from '../assets/login-bg.jpg';
 import { isSupabaseConfigured, normalizeLoginIdentifier, supabase } from '../lib/supabaseClient';
 
 interface LoginPageProps {
@@ -51,42 +61,63 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
   return (
     <div
       data-testid="login-page"
-      className="min-h-screen w-screen bg-[#0b0e14] text-[#e6eaf2] flex items-center justify-center p-4 relative overflow-hidden"
+      className="min-h-screen w-screen bg-[#070708] text-neutral-100 flex items-center justify-center p-5 sm:p-8 relative overflow-hidden"
     >
-      {/* Subtle TradingView grid background */}
+      {/* Monochrome stock chart background artwork */}
+      <img
+        src={loginBgImage}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none select-none absolute inset-0 w-full h-full object-cover object-center opacity-85 scale-[1.02]"
+      />
+
+      {/* Soft atmospheric vignette for effortless readability */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-20"
+        className="pointer-events-none absolute inset-0"
         style={{
-          backgroundImage:
-            'linear-gradient(to right, #1e2433 1px, transparent 1px), linear-gradient(to bottom, #1e2433 1px, transparent 1px)',
-          backgroundSize: '48px 48px',
+          background:
+            'radial-gradient(circle at center, rgba(7,7,8,0.16) 0%, rgba(7,7,8,0.46) 65%, rgba(0,0,0,0.78) 100%)',
         }}
       />
 
-      <div className="relative w-full max-w-[390px] rounded-xl bg-[#131722]/95 border border-[#262c3a] shadow-2xl p-7 backdrop-blur-md">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-[#2962ff]/15 border border-[#2962ff]/40 flex items-center justify-center text-[#5b9cf6] shrink-0">
-            <CandlestickChart className="w-5 h-5" />
+      {/* Relaxed monochrome niche-style login card */}
+      <div className="relative w-full max-w-[404px] rounded-2xl bg-[#0d0d0f]/82 border border-white/[0.12] shadow-[0_28px_90px_rgba(0,0,0,0.85)] p-7 sm:p-8 backdrop-blur-xl">
+        <div className="flex items-start justify-between gap-3 mb-7">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-white/[0.08] border border-white/[0.14] flex items-center justify-center text-white shrink-0">
+              <CandlestickChart className="w-5 h-5 stroke-[1.75]" />
+            </div>
+            <div>
+              <h1 className="text-[19px] font-semibold tracking-tight text-white leading-snug">
+                TrillReference
+              </h1>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Financial Charting &amp; Cloud Workspace
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-[#f0f3fa]">TrillReference</h1>
-            <p className="text-xs text-[#8b95a7]">
-              Financial Charting &amp; Cloud Workspace
-            </p>
-          </div>
+
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/[0.1] px-2.5 py-1 text-[10px] font-medium tracking-wide text-neutral-300 uppercase shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-white/80" />
+            Desk
+          </span>
         </div>
+
+        <p className="text-[13px] leading-relaxed text-neutral-400 mb-6">
+          Masuk dengan tenang ke ruang analisis Anda — chart, garis tren, dan watchlist siap dilanjutkan kapan saja.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <label
               htmlFor="login-username"
-              className="block text-xs font-medium text-[#b2b5be]"
+              className="block text-xs font-medium text-neutral-300"
             >
               Username
             </label>
             <div className="relative">
-              <User className="w-4 h-4 text-[#787b86] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <User className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 id="login-username"
                 type="text"
@@ -96,7 +127,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Masukkan username"
-                className="w-full h-10 pl-9 pr-3 rounded-lg bg-[#0b0e14] border border-[#2a3142] text-sm text-[#f0f3fa] placeholder:text-[#555e70] focus:outline-none focus:border-[#2962ff] transition-colors"
+                className="w-full h-11 pl-10 pr-3.5 rounded-xl bg-black/55 border border-white/[0.12] text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/50 focus:ring-2 focus:ring-white/10 transition-all"
               />
             </div>
           </div>
@@ -104,12 +135,12 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
           <div className="space-y-1.5">
             <label
               htmlFor="login-password"
-              className="block text-xs font-medium text-[#b2b5be]"
+              className="block text-xs font-medium text-neutral-300"
             >
               Password
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-[#787b86] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Lock className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 id="login-password"
                 type={showPassword ? 'text' : 'password'}
@@ -118,13 +149,13 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Masukkan password"
-                className="w-full h-10 pl-9 pr-10 rounded-lg bg-[#0b0e14] border border-[#2a3142] text-sm text-[#f0f3fa] placeholder:text-[#555e70] focus:outline-none focus:border-[#2962ff] transition-colors"
+                className="w-full h-11 pl-10 pr-11 rounded-xl bg-black/55 border border-white/[0.12] text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:border-white/50 focus:ring-2 focus:ring-white/10 transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-[#787b86] hover:text-[#f0f3fa] cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -135,7 +166,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
             <div
               role="alert"
               data-testid="login-error"
-              className="px-3 py-2 rounded-lg bg-[#2a1518] border border-[#ef5350]/50 text-xs text-[#fca5a5]"
+              className="px-3.5 py-2.5 rounded-xl bg-white/[0.07] border border-white/25 text-xs text-neutral-100"
             >
               {errorMsg}
             </div>
@@ -144,7 +175,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full h-10 rounded-lg bg-[#2962ff] hover:bg-[#1e53e5] disabled:opacity-60 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            className="mt-2 w-full h-11 rounded-xl bg-white hover:bg-neutral-200 active:scale-[0.99] disabled:opacity-60 text-neutral-950 text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-[0_6px_24px_rgba(255,255,255,0.12)]"
           >
             {submitting ? (
               <>
@@ -152,13 +183,16 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
                 <span>Memverifikasi…</span>
               </>
             ) : (
-              <span>Masuk ke Chart</span>
+              <>
+                <span>Masuk ke Chart</span>
+                <ArrowRight className="w-4 h-4" />
+              </>
             )}
           </button>
         </form>
 
-        <div className="mt-5 pt-4 border-t border-[#1f2430] flex items-center gap-2 text-[11px] text-[#787b86]">
-          <ShieldCheck className="w-3.5 h-3.5 text-[#089981] shrink-0" />
+        <div className="mt-6 pt-5 border-t border-white/[0.08] flex items-center gap-2.5 text-[11px] leading-relaxed text-neutral-400">
+          <ShieldCheck className="w-4 h-4 text-neutral-300 shrink-0" />
           <span>
             Gambar trendline, indikator &amp; watchlist tersimpan otomatis di akun Supabase Anda.
           </span>
