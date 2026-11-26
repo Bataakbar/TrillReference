@@ -828,7 +828,7 @@ export function createApiApp(): express.Express {
         ScreenerTimeframe,
         { yfInterval: Parameters<typeof yahooFinance.chart>[1]['interval']; lookbackDays: number; resampleMs?: number; ttlMs: number }
       > = {
-        '1d': { yfInterval: '1d', lookbackDays: 320, ttlMs: 120_000 },
+        '1d': { yfInterval: '1d', lookbackDays: 400, ttlMs: 120_000 },
         '1w': { yfInterval: '1wk', lookbackDays: 1460, ttlMs: 180_000 },
         '4h': { yfInterval: '60m', lookbackDays: 55, resampleMs: 4 * 60 * 60 * 1000, ttlMs: 90_000 },
         '1h': { yfInterval: '60m', lookbackDays: 45, ttlMs: 60_000 },

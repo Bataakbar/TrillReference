@@ -6,7 +6,11 @@ import {
   DEFAULT_SCREENER_FILTERS,
   computeScreenerTechnicals,
   countActiveScreenerFilters,
+  detectCandlePattern,
   filterScreenerRows,
+  layoutTreemapRects,
+  matchesIndexMembership,
+  normalizeScreenerFilters,
   sortScreenerRows,
   type ScreenerRow,
 } from './screenerModel';
@@ -27,7 +31,7 @@ function buildRisingBars(count: number, startPrice = 100, step = 2): OHLCVBar[] 
   });
 }
 
-test('computeScreenerTechnicals detects Price > EMA 9 on steady uptrend and computes RSI/MACD', () => {
+test('computeScreenerTechnicals detects Price > EMA 9 on steady uptrend and computes TradingView oscillators & split ratings', () => {
   const bars = buildRisingBars(80, 100, 1.5);
   const snap = computeScreenerTechnicals(bars);
 
@@ -38,14 +42,20 @@ test('computeScreenerTechnicals detects Price > EMA 9 on steady uptrend and comp
   assert.equal(snap.ema9Signal, 'above');
   assert.ok((snap.ema9DiffPct ?? 0) > 0);
   assert.ok(snap.rsi14 !== null && snap.rsi14 > 70);
+  assert.ok(snap.mom10 !== null && snap.mom10 > 0);
+  assert.ok(snap.awesomeOsc !== null);
+  assert.ok(snap.cci20 !== null);
+  assert.ok(snap.stochK !== null && snap.stochD !== null);
+  assert.ok(snap.bbUpper !== null && snap.bbLower !== null);
   assert.ok(snap.macdHist !== null);
+  assert.equal(snap.maRating, 'Strong Buy');
   assert.ok(snap.techRating === 'Buy' || snap.techRating === 'Strong Buy');
+  assert.equal(snap.sparkline.length, 30);
 });
 
 test('computeScreenerTechnicals detects exact cross_above EMA 9 signal on breakout candle', () => {
   const dayMs = 24 * 60 * 60 * 1000;
   const baseTs = Date.UTC(2025, 0, 1);
-  // 19 bars around 100 ending with a dip to 95 below EMA9, then final breakout bar to 112
   const bars: OHLCVBar[] = Array.from({ length: 20 }, (_, i) => ({
     timestamp: baseTs + i * dayMs,
     open: 100,
@@ -60,7 +70,40 @@ test('computeScreenerTechnicals detects exact cross_above EMA 9 signal on breako
   assert.ok((snap.ema9DiffPct ?? 0) > 0);
 });
 
-test('filterScreenerRows filters Harga di atas EMA 9, Golden Stack, RSI oversold, and custom rules cleanly', () => {
+test('detectCandlePattern identifies Bullish Engulfing and Hammer cleanly', () => {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const baseTs = Date.UTC(2026, 0, 1);
+
+  const engulfBars: OHLCVBar[] = [
+    { timestamp: baseTs, open: 100, high: 101, low: 97, close: 98, volume: 1000 },
+    { timestamp: baseTs + dayMs, open: 102, high: 103, low: 98, close: 99, volume: 1200 },
+    { timestamp: baseTs + 2 * dayMs, open: 98, high: 105, low: 97.5, close: 104, volume: 1800 },
+  ];
+  assert.deepEqual(detectCandlePattern(engulfBars), {
+    pattern: 'bullish_engulfing',
+    sentiment: 'bullish',
+  });
+
+  const hammerBars: OHLCVBar[] = [
+    { timestamp: baseTs, open: 105, high: 106, low: 102, close: 103, volume: 1000 },
+    { timestamp: baseTs + dayMs, open: 98, high: 100, low: 90, close: 99.8, volume: 1500 },
+  ];
+  assert.deepEqual(detectCandlePattern(hammerBars), {
+    pattern: 'hammer',
+    sentiment: 'bullish',
+  });
+
+  const dojiBars: OHLCVBar[] = [
+    { timestamp: baseTs, open: 105, high: 106, low: 102, close: 103, volume: 1000 },
+    { timestamp: baseTs + dayMs, open: 99.7, high: 100, low: 90, close: 99.8, volume: 1500 },
+  ];
+  assert.deepEqual(detectCandlePattern(dojiBars), {
+    pattern: 'dragonfly_doji',
+    sentiment: 'bullish',
+  });
+});
+
+test('filterScreenerRows filters EMA 9, Index (LQ45), Flagged, Patterns, and custom rules cleanly', () => {
   const baseTech = computeScreenerTechnicals(buildRisingBars(60, 100, 1));
   const rows: ScreenerRow[] = [
     {
@@ -103,6 +146,10 @@ test('filterScreenerRows filters Harga di atas EMA 9, Golden Stack, RSI oversold
       sma200: 9300,
       rsi14: 61.4,
       macdHist: 35.2,
+      candlePattern: 'bullish_engulfing',
+      candlePatternSentiment: 'bullish',
+      maRating: 'Strong Buy',
+      osRating: 'Buy',
       techRating: 'Strong Buy',
     },
     {
@@ -145,6 +192,10 @@ test('filterScreenerRows filters Harga di atas EMA 9, Golden Stack, RSI oversold
       sma200: 74,
       rsi14: 26.5,
       macdHist: -1.4,
+      candlePattern: null,
+      candlePatternSentiment: null,
+      maRating: 'Sell',
+      osRating: 'Neutral',
       techRating: 'Sell',
     },
   ];
@@ -177,6 +228,34 @@ test('filterScreenerRows filters Harga di atas EMA 9, Golden Stack, RSI oversold
     ['GOTO.JK']
   );
 
+  // Index membership filter (INFOBANK15 has BBCA.JK, not GOTO.JK)
+  assert.equal(matchesIndexMembership('BBCA.JK', 'INFOBANK15'), true);
+  assert.equal(matchesIndexMembership('GOTO.JK', 'INFOBANK15'), false);
+  const infobankMatches = filterScreenerRows(rows, {
+    ...DEFAULT_SCREENER_FILTERS,
+    indexFilter: 'INFOBANK15',
+  });
+  assert.deepEqual(
+    infobankMatches.map((r) => r.symbol),
+    ['BBCA.JK']
+  );
+
+  // Flagged-only filter & Candlestick pattern filter
+  const flaggedMatches = filterScreenerRows(
+    rows,
+    { ...DEFAULT_SCREENER_FILTERS, flaggedOnly: true, patternFilter: 'bullish' },
+    { flaggedSymbols: new Set(['BBCA.JK']) }
+  );
+  assert.deepEqual(
+    flaggedMatches.map((r) => r.symbol),
+    ['BBCA.JK']
+  );
+
+  // Backwards-compatible legacy filter normalization
+  const legacyNormalized = normalizeScreenerFilters({ ema9Mode: 'above_ema9' });
+  assert.equal(legacyNormalized.indexFilter, 'ALL');
+  assert.equal(legacyNormalized.patternFilter, 'all');
+
   // Custom numeric rule: ema9DiffPct >= 2
   const customMatches = filterScreenerRows(rows, {
     ...DEFAULT_SCREENER_FILTERS,
@@ -189,13 +268,30 @@ test('filterScreenerRows filters Harga di atas EMA 9, Golden Stack, RSI oversold
     ['BBCA.JK']
   );
 
-  // Count active filters
   assert.equal(countActiveScreenerFilters(abovePreset.filters), 1);
 
-  // Sorting pushes nulls cleanly to bottom and orders numerically
   const sortedByPe = sortScreenerRows(rows, { key: 'trailingPE', direction: 'asc' });
   assert.deepEqual(
     sortedByPe.map((r) => r.symbol),
     ['BBCA.JK', 'GOTO.JK']
   );
+});
+
+test('layoutTreemapRects partitions bounds into non-overlapping proportional tiles', () => {
+  const rects = layoutTreemapRects(
+    [
+      { id: 'A', weight: 60, payload: 'A' },
+      { id: 'B', weight: 30, payload: 'B' },
+      { id: 'C', weight: 10, payload: 'C' },
+    ],
+    { x: 0, y: 0, w: 100, h: 100 }
+  );
+
+  assert.equal(rects.length, 3);
+  const totalArea = rects.reduce((s, r) => s + r.w * r.h, 0);
+  assert.ok(Math.abs(totalArea - 10_000) < 0.01);
+  for (const r of rects) {
+    assert.ok(r.w > 0 && r.h > 0);
+    assert.ok(r.x >= 0 && r.y >= 0);
+  }
 });

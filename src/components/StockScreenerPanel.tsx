@@ -8,16 +8,23 @@ import {
   Columns3,
   Download,
   Filter,
+  Flag,
+  LayoutGrid,
+  LineChart,
   Loader2,
   Maximize2,
   Minimize2,
   Plus,
+  Redo2,
   RefreshCw,
   RotateCcw,
   Search,
   SlidersHorizontal,
+  Table2,
+  Timer,
   Trash2,
   TrendingUp,
+  Undo2,
   X,
 } from 'lucide-react';
 import { STOCK_SECTOR_OPTIONS } from '../../shared/instrumentCatalog';
@@ -27,33 +34,46 @@ import {
   DEFAULT_SCREENER_FILTERS,
   NUMERIC_RULE_FIELD_LABELS,
   SCREENER_COLUMNS,
+  SCREENER_INDEX_OPTIONS,
   SCREENER_TABS,
   countActiveScreenerFilters,
   filterScreenerRows,
+  normalizeScreenerFilters,
   sortScreenerRows,
   type ChangeBandFilter,
   type Ema9FilterMode,
+  type HeatmapColorMetric,
   type MaTrendFilterMode,
   type MarketCapBandFilter,
   type MacdSignalFilter,
+  type PatternFilterMode,
+  type PerfFilterMode,
   type RsiBandFilter,
   type ScreenerColumnKey,
   type ScreenerFilterState,
+  type ScreenerIndexId,
   type ScreenerMarket,
   type ScreenerNumericField,
   type ScreenerNumericOp,
   type ScreenerNumericRule,
   type ScreenerPreset,
+  type ScreenerRefreshRate,
   type ScreenerRow,
   type ScreenerSortState,
   type ScreenerTabId,
   type ScreenerTimeframe,
+  type ScreenerViewMode,
   type TechRatingFilter,
-  type TechRatingLabel,
 } from '../../shared/screenerModel';
 import { formatCompactVolume } from '../utils/drawingStorage';
 import { getTickerAvatar, type FlagColor, type WatchlistFlagMap } from '../utils/watchlistModel';
 import { FlagRibbonIcon } from './FlagRibbon';
+import {
+  CandlePatternGlyph,
+  MiniChartGridView,
+  SectorHeatmapView,
+  TechRatingBadge,
+} from './ScreenerViews';
 
 interface ScreenerApiResponse {
   market: ScreenerMarket;
@@ -105,6 +125,32 @@ const EMA9_OPTIONS: ReadonlyArray<{ id: Ema9FilterMode; label: string }> = [
   { id: 'below_ema9', label: 'Harga < EMA 9' },
 ];
 
+const VIEW_MODE_OPTIONS: ReadonlyArray<{
+  id: ScreenerViewMode;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'table', label: 'Table', Icon: Table2 },
+  { id: 'charts', label: 'Charts', Icon: LineChart },
+  { id: 'heatmap', label: 'Heatmap', Icon: LayoutGrid },
+];
+
+const REFRESH_RATE_OPTIONS: ReadonlyArray<{ id: ScreenerRefreshRate; label: string; seconds: number }> = [
+  { id: 'manual', label: 'Manual', seconds: 0 },
+  { id: '15s', label: '15s', seconds: 15 },
+  { id: '60s', label: '1m', seconds: 60 },
+];
+
+const MAX_FILTER_HISTORY = 25;
+
+function cloneFilters(f: ScreenerFilterState): ScreenerFilterState {
+  return {
+    ...DEFAULT_SCREENER_FILTERS,
+    ...f,
+    customRules: f.customRules.map((r) => ({ ...r })),
+  };
+}
+
 function formatCompactMoney(val: number | null, currency: string): string {
   if (val === null || !Number.isFinite(val)) return '—';
   const prefix = currency.toUpperCase() === 'IDR' ? 'Rp ' : '$';
@@ -129,22 +175,6 @@ function formatPct(val: number | null): string {
   return `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
 }
 
-function techRatingBadgeClass(rating: TechRatingLabel): string {
-  switch (rating) {
-    case 'Strong Buy':
-      return 'bg-[#089981]/20 text-[#089981] dark:text-[#2dd4bf] border-[#089981]/40';
-    case 'Buy':
-      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-    case 'Strong Sell':
-      return 'bg-[#f23645]/20 text-[#dc2626] dark:text-[#f87171] border-[#f23645]/40';
-    case 'Sell':
-      return 'bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30';
-    case 'Neutral':
-    default:
-      return 'bg-slate-100 text-slate-600 dark:bg-[#23293a] dark:text-[#98a2b3] border-slate-200 dark:border-[#30374a]';
-  }
-}
-
 function getFlagTooltip(color: FlagColor | undefined): string {
   return color ? `Flagged (${color})` : 'Flag symbol';
 }
@@ -167,12 +197,31 @@ export default function StockScreenerPanel({
     activeSymbol.toUpperCase().endsWith('.JK') ? 'ID' : 'US'
   );
   const [tf, setTf] = useState<ScreenerTimeframe>('1d');
+  const [viewMode, setViewMode] = useState<ScreenerViewMode>('table');
   const [activeTab, setActiveTab] = useState<ScreenerTabId>('technicals');
-  const [filters, setFilters] = useState<ScreenerFilterState>(() => ({
-    ...DEFAULT_SCREENER_FILTERS,
-    ema9Mode: 'above_ema9',
-  }));
+  const [refreshRate, setRefreshRate] = useState<ScreenerRefreshRate>('manual');
+  const [secondsLeft, setSecondsLeft] = useState<number>(0);
+
+  // Charts & Heatmap sub-options (TradingView parity)
+  const [chartStyle, setChartStyle] = useState<'area' | 'line'>('area');
+  const [showEma9Overlay, setShowEma9Overlay] = useState<boolean>(true);
+  const [heatmapColorMetric, setHeatmapColorMetric] =
+    useState<HeatmapColorMetric>('changePercent');
+
+  const initialFilters = useMemo<ScreenerFilterState>(
+    () => ({
+      ...DEFAULT_SCREENER_FILTERS,
+      ema9Mode: 'above_ema9',
+    }),
+    []
+  );
+  const [filters, setFilters] = useState<ScreenerFilterState>(initialFilters);
   const [activePresetId, setActivePresetId] = useState<string>('above-ema9');
+  const [filterHistory, setFilterHistory] = useState<{
+    past: Array<{ filters: ScreenerFilterState; presetId: string }>;
+    future: Array<{ filters: ScreenerFilterState; presetId: string }>;
+  }>({ past: [], future: [] });
+
   const [sort, setSort] = useState<ScreenerSortState>({
     key: 'ema9DiffPct',
     direction: 'desc',
@@ -190,6 +239,7 @@ export default function StockScreenerPanel({
 
   // Popovers & Modals
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
   const [allFiltersOpen, setAllFiltersOpen] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
@@ -256,10 +306,38 @@ export default function StockScreenerPanel({
     };
   }, [open, runScan]);
 
+  // TradingView-style Auto-Refresh scanner interval
+  useEffect(() => {
+    if (!open || refreshRate === 'manual') {
+      setSecondsLeft(0);
+      return;
+    }
+    const spec = REFRESH_RATE_OPTIONS.find((r) => r.id === refreshRate);
+    const intervalSec = spec?.seconds ?? 0;
+    if (intervalSec <= 0) return;
+
+    setSecondsLeft(intervalSec);
+    const timerId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          if (!loading) {
+            runScan({ forceRefresh: true });
+          }
+          return intervalSec;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [open, refreshRate, loading, runScan]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setPresetMenuOpen(false);
+        setViewMenuOpen(false);
         setColumnsMenuOpen(false);
         setAllFiltersOpen(false);
       }
@@ -268,6 +346,7 @@ export default function StockScreenerPanel({
       const target = e.target as Node;
       if (panelRef.current && !panelRef.current.contains(target)) {
         setPresetMenuOpen(false);
+        setViewMenuOpen(false);
         setColumnsMenuOpen(false);
       }
     };
@@ -279,13 +358,26 @@ export default function StockScreenerPanel({
     };
   }, []);
 
+  const flaggedSymbols = useMemo(
+    () => new Set(Object.keys(flagMap).map((k) => k.toUpperCase())),
+    [flagMap]
+  );
+
+  const availableIndexOptions = useMemo(
+    () => SCREENER_INDEX_OPTIONS.filter((opt) => opt.markets.includes(market)),
+    [market]
+  );
+
   const visibleColumns = useMemo<ScreenerColumnKey[]>(() => {
     const override = customColumnsByTab[activeTab];
     if (override && override.length > 0) return override;
     return SCREENER_TABS.find((t) => t.id === activeTab)?.columns ?? SCREENER_TABS[0].columns;
   }, [activeTab, customColumnsByTab]);
 
-  const filteredRows = useMemo(() => filterScreenerRows(rows, filters), [rows, filters]);
+  const filteredRows = useMemo(
+    () => filterScreenerRows(rows, filters, { flaggedSymbols }),
+    [rows, filters, flaggedSymbols]
+  );
   const sortedRows = useMemo(() => sortScreenerRows(filteredRows, sort), [filteredRows, sort]);
   const activeFilterCount = useMemo(() => countActiveScreenerFilters(filters), [filters]);
   const allPresets = useMemo(
@@ -295,19 +387,61 @@ export default function StockScreenerPanel({
 
   if (!open) return null;
 
+  const commitFilters = (nextFilters: ScreenerFilterState, nextPresetId: string) => {
+    setFilterHistory((prev) => ({
+      past: [...prev.past.slice(-(MAX_FILTER_HISTORY - 1)), { filters: cloneFilters(filters), presetId: activePresetId }],
+      future: [],
+    }));
+    setFilters(normalizeScreenerFilters(nextFilters));
+    setActivePresetId(nextPresetId);
+  };
+
+  const handleUndo = () => {
+    if (filterHistory.past.length === 0) return;
+    const prevEntry = filterHistory.past[filterHistory.past.length - 1];
+    setFilterHistory((h) => ({
+      past: h.past.slice(0, -1),
+      future: [{ filters: cloneFilters(filters), presetId: activePresetId }, ...h.future.slice(0, MAX_FILTER_HISTORY - 1)],
+    }));
+    setFilters(normalizeScreenerFilters(prevEntry.filters));
+    setActivePresetId(prevEntry.presetId);
+  };
+
+  const handleRedo = () => {
+    if (filterHistory.future.length === 0) return;
+    const [nextEntry, ...rest] = filterHistory.future;
+    setFilterHistory((h) => ({
+      past: [...h.past.slice(-(MAX_FILTER_HISTORY - 1)), { filters: cloneFilters(filters), presetId: activePresetId }],
+      future: rest,
+    }));
+    setFilters(normalizeScreenerFilters(nextEntry.filters));
+    setActivePresetId(nextEntry.presetId);
+  };
+
   const updateFilter = <K extends keyof ScreenerFilterState>(
     key: K,
     value: ScreenerFilterState[K]
   ) => {
-    setActivePresetId('custom');
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    commitFilters({ ...filters, [key]: value }, 'custom');
   };
 
   const applyPreset = (preset: ScreenerPreset) => {
-    setActivePresetId(preset.id);
-    setFilters({ ...preset.filters, customRules: [...preset.filters.customRules] });
-    if (preset.tab) setActiveTab(preset.tab);
+    commitFilters(normalizeScreenerFilters(preset.filters), preset.id);
+    if (preset.tab) {
+      setActiveTab(preset.tab);
+      setViewMode('table');
+    }
     setPresetMenuOpen(false);
+  };
+
+  const handleMarketChange = (nextMarket: ScreenerMarket) => {
+    setMarket(nextMarket);
+    const validForNext = SCREENER_INDEX_OPTIONS.some(
+      (opt) => opt.id === filters.indexFilter && opt.markets.includes(nextMarket)
+    );
+    if (!validForNext && filters.indexFilter !== 'ALL') {
+      commitFilters({ ...filters, indexFilter: 'ALL' }, activePresetId);
+    }
   };
 
   const handleSaveNewPreset = (e: React.FormEvent) => {
@@ -320,7 +454,7 @@ export default function StockScreenerPanel({
       description: `${countActiveScreenerFilters(filters)} filter aktif`,
       isBuiltIn: false,
       tab: activeTab,
-      filters: { ...filters, customRules: [...filters.customRules] },
+      filters: cloneFilters(filters),
     };
     const nextList = [...savedPresets, nextPreset];
     onSavePresets(nextList);
@@ -366,8 +500,7 @@ export default function StockScreenerPanel({
       value: v1,
       ...(draftOp === 'between' && Number.isFinite(v2) ? { valueMax: v2 } : {}),
     };
-    setActivePresetId('custom');
-    setFilters((prev) => ({ ...prev, customRules: [...prev.customRules, rule] }));
+    commitFilters({ ...filters, customRules: [...filters.customRules, rule] }, 'custom');
   };
 
   const handleExportCsv = () => {
@@ -395,6 +528,9 @@ export default function StockScreenerPanel({
 
   const activePresetLabel =
     allPresets.find((p) => p.id === activePresetId)?.name ?? 'Custom Screen';
+  const activeViewMeta =
+    VIEW_MODE_OPTIONS.find((v) => v.id === viewMode) ?? VIEW_MODE_OPTIONS[0];
+  const ActiveViewIcon = activeViewMeta.Icon;
 
   return (
     <section
@@ -402,11 +538,11 @@ export default function StockScreenerPanel({
       data-testid="stock-screener-panel"
       aria-label="Stock Screener"
       className={`flex flex-col bg-white dark:bg-[#0d1017] border-t border-slate-200 dark:border-[#1f2430] select-none z-30 ${
-        expanded ? 'flex-1 min-h-0' : 'h-[46%] min-h-[290px] max-h-[540px] shrink-0'
+        expanded ? 'flex-1 min-h-0' : 'h-[48%] min-h-[300px] max-h-[560px] shrink-0'
       }`}
     >
       {/* Top Screener Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200 dark:border-[#1f2430] bg-slate-50/80 dark:bg-[#11141d]">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 border-b border-slate-200 dark:border-[#1f2430] bg-slate-50/80 dark:bg-[#11141d]">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900 dark:text-[#f0f3fa]">
             <SlidersHorizontal className="w-3.5 h-3.5 text-[#2962ff]" />
@@ -425,7 +561,7 @@ export default function StockScreenerPanel({
             aria-label="Screener market"
             data-testid="screener-market-select"
             value={market}
-            onChange={(e) => setMarket(e.target.value as ScreenerMarket)}
+            onChange={(e) => handleMarketChange(e.target.value as ScreenerMarket)}
             className="h-7 px-2 rounded bg-white dark:bg-[#171b26] border border-slate-200 dark:border-[#2a3142] text-xs font-medium text-slate-800 dark:text-[#e6eaf2] focus:outline-none focus:border-[#2962ff] cursor-pointer"
           >
             {MARKET_OPTIONS.map((m) => (
@@ -443,11 +579,12 @@ export default function StockScreenerPanel({
               onClick={() => {
                 setPresetMenuOpen((v) => !v);
                 setColumnsMenuOpen(false);
+                setViewMenuOpen(false);
               }}
               className="h-7 px-2.5 rounded bg-white dark:bg-[#171b26] hover:bg-slate-100 dark:hover:bg-[#1e2433] border border-slate-200 dark:border-[#2a3142] text-xs font-medium text-slate-800 dark:text-[#f0f3fa] flex items-center gap-1.5 cursor-pointer"
             >
               <Bookmark className="w-3 h-3 text-[#2962ff]" />
-              <span className="max-w-[190px] truncate">{activePresetLabel}</span>
+              <span className="max-w-[175px] truncate">{activePresetLabel}</span>
               <ChevronDown className="w-3 h-3 text-slate-400" />
             </button>
 
@@ -578,18 +715,70 @@ export default function StockScreenerPanel({
           </div>
         </div>
 
-        {/* Right Actions: Scan Status, Refresh, Expand, Close */}
-        <div className="flex items-center gap-1.5">
+        {/* Right Actions: Undo/Redo, Auto-Refresh Rate, Refresh, Expand, Close */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={filterHistory.past.length === 0}
+            aria-label="Undo filter change"
+            title="Undo filter change"
+            className="h-7 w-7 rounded flex items-center justify-center text-slate-600 hover:bg-slate-200/70 dark:text-[#98a2b3] dark:hover:bg-[#1e2433] dark:hover:text-white disabled:opacity-35 disabled:cursor-default cursor-pointer"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={handleRedo}
+            disabled={filterHistory.future.length === 0}
+            aria-label="Redo filter change"
+            title="Redo filter change"
+            className="h-7 w-7 rounded flex items-center justify-center text-slate-600 hover:bg-slate-200/70 dark:text-[#98a2b3] dark:hover:bg-[#1e2433] dark:hover:text-white disabled:opacity-35 disabled:cursor-default cursor-pointer"
+          >
+            <Redo2 className="w-3.5 h-3.5" />
+          </button>
+
           {scannedAt && !loading && (
-            <span className="hidden xl:inline text-[11px] text-slate-400 dark:text-[#787b86]">
+            <span className="hidden xl:inline text-[11px] text-slate-400 dark:text-[#787b86] px-1">
               Scan {new Date(scannedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
+
+          {/* Auto-Refresh Rate (Manual / 15s / 1m) */}
+          <div
+            className="flex items-center h-7 rounded bg-white dark:bg-[#171b26] border border-slate-200 dark:border-[#2a3142] px-1.5 gap-1"
+            title="Auto-refresh scan rate"
+          >
+            <Timer
+              className={`w-3 h-3 shrink-0 ${
+                refreshRate !== 'manual' ? 'text-[#089981]' : 'text-slate-400'
+              }`}
+            />
+            <select
+              aria-label="Screener auto-refresh rate"
+              data-testid="screener-refresh-rate"
+              value={refreshRate}
+              onChange={(e) => setRefreshRate(e.target.value as ScreenerRefreshRate)}
+              className="bg-transparent text-[11px] font-medium text-slate-700 dark:text-[#cbd5e1] focus:outline-none cursor-pointer"
+            >
+              {REFRESH_RATE_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {refreshRate !== 'manual' && secondsLeft > 0 && (
+              <span className="text-[10px] font-mono text-[#089981] dark:text-[#2dd4bf] min-w-[20px] text-right">
+                {secondsLeft}s
+              </span>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => runScan({ forceRefresh: true })}
             disabled={loading}
-            title="Refresh live Yahoo Finance quotes & EMA/RSI"
+            title="Refresh live Yahoo Finance quotes & indicators"
             className="h-7 px-2 rounded bg-white dark:bg-[#171b26] hover:bg-slate-100 dark:hover:bg-[#1e2433] border border-slate-200 dark:border-[#2a3142] text-xs text-slate-700 dark:text-[#cbd5e1] flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin text-[#2962ff]' : ''}`} />
@@ -618,6 +807,28 @@ export default function StockScreenerPanel({
         </div>
       </div>
 
+      {/* TradingView Preset Pill Strip */}
+      <div className="flex items-center gap-1.5 px-3 py-1 border-b border-slate-200/70 dark:border-[#1c212d] overflow-x-auto thin-scrollbar bg-white dark:bg-[#0d1017]">
+        {allPresets.map((preset) => {
+          const active = activePresetId === preset.id;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              title={preset.description}
+              onClick={() => applyPreset(preset)}
+              className={`h-6 px-2.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 border ${
+                active
+                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-[#f0f3fa] dark:text-[#0d1017] dark:border-[#f0f3fa]'
+                  : 'bg-slate-100/80 dark:bg-[#151923] text-slate-600 dark:text-[#98a2b3] border-slate-200 dark:border-[#242a38] hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {preset.name}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Quick Filter Pills Bar (TradingView Style) */}
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-slate-200 dark:border-[#1f2430] overflow-x-auto thin-scrollbar bg-white dark:bg-[#0d1017]">
         {/* Ticker/Name search */}
@@ -629,11 +840,49 @@ export default function StockScreenerPanel({
             value={filters.q}
             onChange={(e) => updateFilter('q', e.target.value)}
             placeholder="Filter ticker..."
-            className="h-7 w-32 sm:w-36 pl-6 pr-2 rounded-md bg-slate-100 dark:bg-[#161a24] border border-slate-200 dark:border-[#262c3a] text-base sm:text-xs text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 focus:outline-none focus:border-[#2962ff]"
+            className="h-7 w-28 sm:w-32 pl-6 pr-2 rounded-md bg-slate-100 dark:bg-[#161a24] border border-slate-200 dark:border-[#262c3a] text-base sm:text-xs text-slate-900 dark:text-[#f0f3fa] placeholder:text-slate-400 focus:outline-none focus:border-[#2962ff]"
           />
         </div>
 
-        {/* EMA 9 Quick Pill (Highlighted TradingView Style) */}
+        {/* Index Filter (IDX30 / LQ45 / NDX / DJI) */}
+        {availableIndexOptions.length > 1 && (
+          <select
+            aria-label="Index filter"
+            data-testid="screener-index-filter"
+            value={filters.indexFilter}
+            onChange={(e) => updateFilter('indexFilter', e.target.value as ScreenerIndexId)}
+            className={`h-7 px-2 rounded-md border text-xs cursor-pointer shrink-0 focus:outline-none ${
+              filters.indexFilter !== 'ALL'
+                ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa] font-medium'
+                : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
+            }`}
+          >
+            {availableIndexOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Flagged Symbols Quick Toggle */}
+        <button
+          type="button"
+          onClick={() => updateFilter('flaggedOnly', !filters.flaggedOnly)}
+          aria-pressed={filters.flaggedOnly}
+          data-testid="screener-flagged-filter"
+          title="Filter symbols flagged with colors in Watchlist"
+          className={`h-7 px-2 rounded-md border text-xs font-medium flex items-center gap-1 shrink-0 cursor-pointer ${
+            filters.flaggedOnly
+              ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa]'
+              : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
+          }`}
+        >
+          <Flag className="w-3 h-3" />
+          <span>Flagged</span>
+        </button>
+
+        {/* EMA 9 Quick Pill */}
         <select
           aria-label="EMA 9 condition"
           data-testid="screener-ema9-filter"
@@ -652,22 +901,26 @@ export default function StockScreenerPanel({
           ))}
         </select>
 
-        {/* Sector Filter */}
+        {/* Price vs MA / Bollinger Bands Trend Pill (TradingView Price Presets) */}
         <select
-          aria-label="Sector filter"
-          value={filters.sector}
-          onChange={(e) => updateFilter('sector', e.target.value)}
+          aria-label="MA and Bollinger condition"
+          value={filters.maTrendMode}
+          onChange={(e) => updateFilter('maTrendMode', e.target.value as MaTrendFilterMode)}
           className={`h-7 px-2 rounded-md border text-xs cursor-pointer shrink-0 focus:outline-none ${
-            filters.sector !== 'All sectors'
+            filters.maTrendMode !== 'all'
               ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa] font-medium'
               : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
           }`}
         >
-          {STOCK_SECTOR_OPTIONS.map((sec) => (
-            <option key={sec} value={sec}>
-              {sec === 'All sectors' ? 'Sector: All' : sec}
-            </option>
-          ))}
+          <option value="all">MA / BB: Any</option>
+          <option value="above_ema50">Above EMA 50 (Uptrend)</option>
+          <option value="below_ema50">Below EMA 50 (Downtrend)</option>
+          <option value="above_sma50">Harga &gt; SMA 50</option>
+          <option value="above_sma200">Harga &gt; SMA 200</option>
+          <option value="golden_cross">SMA 50 &gt; SMA 200</option>
+          <option value="cross_bb_upper">Above BB(20) Upper</option>
+          <option value="below_bb_lower">Below BB(20) Lower</option>
+          <option value="below_sma200">Harga &lt; SMA 200</option>
         </select>
 
         {/* Price Change % */}
@@ -718,29 +971,46 @@ export default function StockScreenerPanel({
               : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
           }`}
         >
-          <option value="all">RSI(14): Any</option>
+          <option value="all">RSI, 14: Any</option>
           <option value="oversold">Oversold (&lt; 30)</option>
           <option value="bullish">Bullish (50 - 70)</option>
           <option value="neutral">Neutral (30 - 70)</option>
           <option value="overbought">Overbought (&gt; 70)</option>
         </select>
 
-        {/* SMA 50 / 200 Trend */}
+        {/* Candlestick Pattern Quick Filter */}
         <select
-          aria-label="SMA trend filter"
-          value={filters.maTrendMode}
-          onChange={(e) => updateFilter('maTrendMode', e.target.value as MaTrendFilterMode)}
+          aria-label="Candlestick pattern filter"
+          value={filters.patternFilter}
+          onChange={(e) => updateFilter('patternFilter', e.target.value as PatternFilterMode)}
           className={`h-7 px-2 rounded-md border text-xs cursor-pointer shrink-0 focus:outline-none ${
-            filters.maTrendMode !== 'all'
+            filters.patternFilter !== 'all'
               ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa] font-medium'
               : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
           }`}
         >
-          <option value="all">SMA Trend: Any</option>
-          <option value="above_sma50">Harga &gt; SMA 50</option>
-          <option value="above_sma200">Harga &gt; SMA 200</option>
-          <option value="golden_cross">SMA 50 &gt; SMA 200</option>
-          <option value="below_sma200">Harga &lt; SMA 200</option>
+          <option value="all">Pattern: Any</option>
+          <option value="bullish">Bullish Candle</option>
+          <option value="bearish">Bearish Candle</option>
+          <option value="any">Any Detected</option>
+        </select>
+
+        {/* Sector Filter */}
+        <select
+          aria-label="Sector filter"
+          value={filters.sector}
+          onChange={(e) => updateFilter('sector', e.target.value)}
+          className={`h-7 px-2 rounded-md border text-xs cursor-pointer shrink-0 focus:outline-none ${
+            filters.sector !== 'All sectors'
+              ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa] font-medium'
+              : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
+          }`}
+        >
+          {STOCK_SECTOR_OPTIONS.map((sec) => (
+            <option key={sec} value={sec}>
+              {sec === 'All sectors' ? 'Sector: All' : sec}
+            </option>
+          ))}
         </select>
 
         {/* All Filters Modal Trigger */}
@@ -753,6 +1023,9 @@ export default function StockScreenerPanel({
             filters.divYieldMin !== null ||
             filters.macdFilter !== 'all' ||
             filters.techRatingFilter !== 'all' ||
+            filters.maRatingFilter !== 'all' ||
+            filters.osRatingFilter !== 'all' ||
+            filters.perfFilter !== 'all' ||
             filters.marketCapBand !== 'all'
               ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa]'
               : 'bg-slate-100 dark:bg-[#161a24] hover:bg-slate-200 dark:hover:bg-[#1e2433] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
@@ -770,10 +1043,7 @@ export default function StockScreenerPanel({
         {activeFilterCount > 0 && (
           <button
             type="button"
-            onClick={() => {
-              setActivePresetId('all');
-              setFilters({ ...DEFAULT_SCREENER_FILTERS });
-            }}
+            onClick={() => commitFilters({ ...DEFAULT_SCREENER_FILTERS }, 'all')}
             className="h-7 px-2 rounded-md text-xs text-slate-500 hover:text-slate-900 dark:text-[#8b95a7] dark:hover:text-white flex items-center gap-1 shrink-0 cursor-pointer"
           >
             <RotateCcw className="w-3 h-3" />
@@ -782,43 +1052,150 @@ export default function StockScreenerPanel({
         )}
       </div>
 
-      {/* Category View Tabs & Table Tools */}
+      {/* View Mode Switcher (Table / Charts / Heatmap) + Category Tabs + Utilities */}
       <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-slate-200 dark:border-[#1f2430] bg-slate-50/50 dark:bg-[#0f1219]">
-        <div role="tablist" aria-label="Screener column views" className="flex items-center gap-1 overflow-x-auto">
-          {SCREENER_TABS.map((tab) => {
-            const active = activeTab === tab.id;
-            return (
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* TradingView View Type Switcher */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              data-testid="screener-view-switcher"
+              onClick={() => {
+                setViewMenuOpen((v) => !v);
+                setColumnsMenuOpen(false);
+                setPresetMenuOpen(false);
+              }}
+              className="h-7 px-2.5 rounded bg-white dark:bg-[#171b26] hover:bg-slate-100 dark:hover:bg-[#1e2433] border border-slate-200 dark:border-[#2a3142] text-xs font-semibold text-slate-800 dark:text-[#f0f3fa] flex items-center gap-1.5 cursor-pointer"
+            >
+              <ActiveViewIcon className="w-3.5 h-3.5 text-[#2962ff]" />
+              <span>{activeViewMeta.label}</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+
+            {viewMenuOpen && (
+              <div className="absolute left-0 top-8 w-40 rounded-lg bg-white dark:bg-[#161a24] border border-slate-200 dark:border-[#2a3142] shadow-2xl p-1 z-50">
+                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-[#787b86]">
+                  View Type
+                </div>
+                {VIEW_MODE_OPTIONS.map((opt) => {
+                  const Icon = opt.Icon;
+                  const active = viewMode === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      data-testid={`screener-view-${opt.id}`}
+                      onClick={() => {
+                        setViewMode(opt.id);
+                        setViewMenuOpen(false);
+                      }}
+                      className={`w-full px-2.5 py-1.5 rounded text-xs flex items-center justify-between cursor-pointer ${
+                        active
+                          ? 'bg-[#2962ff]/12 text-[#2962ff] dark:text-[#60a5fa] font-semibold'
+                          : 'text-slate-700 dark:text-[#cbd5e1] hover:bg-slate-100 dark:hover:bg-[#212736]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon className="w-3.5 h-3.5" />
+                        <span>{opt.label}</span>
+                      </span>
+                      {active && <Check className="w-3.5 h-3.5" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="h-4 w-px bg-slate-200 dark:bg-[#242a38] shrink-0" />
+
+          {viewMode === 'table' && (
+            <div
+              role="tablist"
+              aria-label="Screener column views"
+              className="flex items-center gap-1 overflow-x-auto thin-scrollbar"
+            >
+              {SCREENER_TABS.map((tab) => {
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`h-7 px-2.5 rounded text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                      active
+                        ? 'bg-white dark:bg-[#1e2433] text-slate-900 dark:text-white shadow-2xs border border-slate-200 dark:border-[#2f3648]'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-[#8b95a7] dark:hover:text-white'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {viewMode === 'charts' && (
+            <div className="flex items-center gap-1.5 overflow-x-auto thin-scrollbar">
               <button
-                key={tab.id}
                 type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setActiveTab(tab.id)}
-                className={`h-7 px-2.5 rounded text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
-                  active
-                    ? 'bg-white dark:bg-[#1e2433] text-slate-900 dark:text-white shadow-2xs border border-slate-200 dark:border-[#2f3648]'
-                    : 'text-slate-600 hover:text-slate-900 dark:text-[#8b95a7] dark:hover:text-white'
+                onClick={() => setChartStyle((s) => (s === 'area' ? 'line' : 'area'))}
+                className="h-7 px-2.5 rounded bg-white dark:bg-[#171b26] border border-slate-200 dark:border-[#2a3142] text-xs font-medium text-slate-700 dark:text-[#cbd5e1] cursor-pointer whitespace-nowrap"
+              >
+                Style: {chartStyle === 'area' ? 'Area' : 'Line'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowEma9Overlay((v) => !v)}
+                aria-pressed={showEma9Overlay}
+                className={`h-7 px-2.5 rounded border text-xs font-medium cursor-pointer whitespace-nowrap ${
+                  showEma9Overlay
+                    ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa]'
+                    : 'bg-white dark:bg-[#171b26] border-slate-200 dark:border-[#2a3142] text-slate-600 dark:text-[#98a2b3]'
                 }`}
               >
-                {tab.label}
+                EMA 9 Line
               </button>
-            );
-          })}
+            </div>
+          )}
+
+          {viewMode === 'heatmap' && (
+            <div className="flex items-center gap-1.5 overflow-x-auto thin-scrollbar">
+              <span className="text-[11px] text-slate-500 dark:text-[#8b95a7] shrink-0">
+                Color by:
+              </span>
+              <select
+                aria-label="Heatmap color metric"
+                value={heatmapColorMetric}
+                onChange={(e) => setHeatmapColorMetric(e.target.value as HeatmapColorMetric)}
+                className="h-7 px-2 rounded bg-white dark:bg-[#171b26] border border-slate-200 dark:border-[#2a3142] text-xs font-medium text-slate-700 dark:text-[#cbd5e1] focus:outline-none cursor-pointer"
+              >
+                <option value="changePercent">Chg %, 1D</option>
+                <option value="ema9DiffPct">vs EMA 9 (%)</option>
+                <option value="rsi14">RSI, 14</option>
+              </select>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-1.5 relative">
-          <button
-            type="button"
-            onClick={() => {
-              setColumnsMenuOpen((v) => !v);
-              setPresetMenuOpen(false);
-            }}
-            title="Customize columns"
-            className="h-7 px-2 rounded flex items-center gap-1 text-xs text-slate-600 hover:bg-slate-200/70 dark:text-[#98a2b3] dark:hover:bg-[#1e2433] dark:hover:text-white cursor-pointer"
-          >
-            <Columns3 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Columns</span>
-          </button>
+        <div className="flex items-center gap-1.5 relative shrink-0">
+          {viewMode === 'table' && (
+            <button
+              type="button"
+              onClick={() => {
+                setColumnsMenuOpen((v) => !v);
+                setPresetMenuOpen(false);
+                setViewMenuOpen(false);
+              }}
+              title="Customize columns"
+              className="h-7 px-2 rounded flex items-center gap-1 text-xs text-slate-600 hover:bg-slate-200/70 dark:text-[#98a2b3] dark:hover:bg-[#1e2433] dark:hover:text-white cursor-pointer"
+            >
+              <Columns3 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Columns</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -875,13 +1252,13 @@ export default function StockScreenerPanel({
         </div>
       </div>
 
-      {/* Results Table Container */}
+      {/* Results Content Area (Table / Charts / Heatmap) */}
       <div className="flex-1 min-h-0 overflow-auto thin-scrollbar relative">
         {loading && rows.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-2.5 text-xs text-slate-500 dark:text-[#8b95a7] py-10">
             <Loader2 className="w-5 h-5 animate-spin text-[#2962ff]" />
             <span>
-              Memindai {MARKET_OPTIONS.find((m) => m.id === market)?.label} ({tf.toUpperCase()}) &amp; menghitung EMA 9, EMA 20, SMA 50/200, RSI(14)…
+              Memindai {MARKET_OPTIONS.find((m) => m.id === market)?.label} ({tf.toUpperCase()}) &amp; menghitung EMA, Oscillators, Candlestick Patterns…
             </span>
           </div>
         ) : errorMsg ? (
@@ -902,16 +1279,30 @@ export default function StockScreenerPanel({
             {activeFilterCount > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  setActivePresetId('all');
-                  setFilters({ ...DEFAULT_SCREENER_FILTERS });
-                }}
+                onClick={() => commitFilters({ ...DEFAULT_SCREENER_FILTERS }, 'all')}
                 className="px-2.5 py-1 rounded bg-slate-200 dark:bg-[#1e2433] text-slate-800 dark:text-white font-medium cursor-pointer"
               >
                 Tampilkan Semua Saham
               </button>
             )}
           </div>
+        ) : viewMode === 'charts' ? (
+          <MiniChartGridView
+            rows={sortedRows}
+            activeSymbol={activeSymbol}
+            flagMap={flagMap}
+            showEma9Overlay={showEma9Overlay}
+            chartStyle={chartStyle}
+            onSelectSymbol={onSelectSymbol}
+            onToggleFlag={onToggleFlag}
+          />
+        ) : viewMode === 'heatmap' ? (
+          <SectorHeatmapView
+            rows={sortedRows}
+            activeSymbol={activeSymbol}
+            colorMetric={heatmapColorMetric}
+            onSelectSymbol={onSelectSymbol}
+          />
         ) : (
           <table className="w-full border-collapse text-xs tabular-nums">
             <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-[#131722] border-b border-slate-200 dark:border-[#242a38] text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
@@ -1126,6 +1517,38 @@ export default function StockScreenerPanel({
                         );
                       }
 
+                      if (colKey === 'mom10' || colKey === 'awesomeOsc') {
+                        const v = row[colKey];
+                        return (
+                          <td
+                            key={colKey}
+                            className={`px-3 py-2 text-right font-mono whitespace-nowrap ${
+                              v === null
+                                ? 'text-slate-400'
+                                : v > 0
+                                  ? 'text-[#089981]'
+                                  : v < 0
+                                    ? 'text-[#f23645]'
+                                    : 'text-slate-700 dark:text-[#cbd5e1]'
+                            }`}
+                          >
+                            {v === null ? '—' : v.toFixed(2)}
+                          </td>
+                        );
+                      }
+
+                      if (colKey === 'cci20' || colKey === 'stochK' || colKey === 'stochD') {
+                        const v = row[colKey];
+                        return (
+                          <td
+                            key={colKey}
+                            className="px-3 py-2 text-right font-mono whitespace-nowrap text-slate-700 dark:text-[#cbd5e1]"
+                          >
+                            {v === null ? '—' : v.toFixed(1)}
+                          </td>
+                        );
+                      }
+
                       if (colKey === 'macdHist') {
                         const h = row.macdHist;
                         return (
@@ -1144,16 +1567,18 @@ export default function StockScreenerPanel({
                         );
                       }
 
-                      if (colKey === 'techRating') {
+                      if (colKey === 'candlePattern') {
+                        return (
+                          <td key={colKey} className="px-3 py-2 whitespace-nowrap">
+                            <CandlePatternGlyph pattern={row.candlePattern} />
+                          </td>
+                        );
+                      }
+
+                      if (colKey === 'techRating' || colKey === 'maRating' || colKey === 'osRating') {
                         return (
                           <td key={colKey} className="px-3 py-2 text-center whitespace-nowrap">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded border text-[10px] font-semibold ${techRatingBadgeClass(
-                                row.techRating
-                              )}`}
-                            >
-                              {row.techRating}
-                            </span>
+                            <TechRatingBadge rating={row[colKey]} />
                           </td>
                         );
                       }
@@ -1189,7 +1614,14 @@ export default function StockScreenerPanel({
                         );
                       }
 
-                      if (colKey === 'perf1w' || colKey === 'perf1m' || colKey === 'perf3m') {
+                      if (
+                        colKey === 'perf1w' ||
+                        colKey === 'perf1m' ||
+                        colKey === 'perf3m' ||
+                        colKey === 'perf6m' ||
+                        colKey === 'perfYtd' ||
+                        colKey === 'perf1y'
+                      ) {
                         const v = row[colKey];
                         return (
                           <td
@@ -1203,6 +1635,15 @@ export default function StockScreenerPanel({
                             }`}
                           >
                             {formatPct(v)}
+                          </td>
+                        );
+                      }
+
+                      if (colKey === 'volatility1w' || colKey === 'volatility1m') {
+                        const v = row[colKey];
+                        return (
+                          <td key={colKey} className="px-3 py-2 text-right font-mono whitespace-nowrap text-slate-600 dark:text-[#98a2b3]">
+                            {v === null ? '—' : `${v.toFixed(2)}%`}
                           </td>
                         );
                       }
@@ -1322,22 +1763,7 @@ export default function StockScreenerPanel({
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="block text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
-                    MACD Momentum
-                  </label>
-                  <select
-                    value={filters.macdFilter}
-                    onChange={(e) => updateFilter('macdFilter', e.target.value as MacdSignalFilter)}
-                    className="w-full h-8 px-2 rounded bg-slate-100 dark:bg-[#0d1017] border border-slate-200 dark:border-[#2a3142] text-xs text-slate-900 dark:text-white"
-                  >
-                    <option value="all">Any</option>
-                    <option value="bullish">Bullish (Hist &gt; 0)</option>
-                    <option value="bearish">Bearish (Hist &lt; 0)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
-                    Technical Rating
+                    Tech Rating (Overall)
                   </label>
                   <select
                     value={filters.techRatingFilter}
@@ -1350,6 +1776,76 @@ export default function StockScreenerPanel({
                     <option value="strong_buy">Strong Buy</option>
                     <option value="buy_or_strong">Buy / Strong Buy</option>
                     <option value="sell_or_strong">Sell / Strong Sell</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
+                    MA Rating
+                  </label>
+                  <select
+                    value={filters.maRatingFilter}
+                    onChange={(e) =>
+                      updateFilter('maRatingFilter', e.target.value as TechRatingFilter)
+                    }
+                    className="w-full h-8 px-2 rounded bg-slate-100 dark:bg-[#0d1017] border border-slate-200 dark:border-[#2a3142] text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="all">Any</option>
+                    <option value="strong_buy">Strong Buy</option>
+                    <option value="buy_or_strong">Buy / Strong Buy</option>
+                    <option value="sell_or_strong">Sell / Strong Sell</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
+                    Oscillators Rating
+                  </label>
+                  <select
+                    value={filters.osRatingFilter}
+                    onChange={(e) =>
+                      updateFilter('osRatingFilter', e.target.value as TechRatingFilter)
+                    }
+                    className="w-full h-8 px-2 rounded bg-slate-100 dark:bg-[#0d1017] border border-slate-200 dark:border-[#2a3142] text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="all">Any</option>
+                    <option value="strong_buy">Strong Buy</option>
+                    <option value="buy_or_strong">Buy / Strong Buy</option>
+                    <option value="sell_or_strong">Sell / Strong Sell</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
+                    Performance Period
+                  </label>
+                  <select
+                    value={filters.perfFilter}
+                    onChange={(e) => updateFilter('perfFilter', e.target.value as PerfFilterMode)}
+                    className="w-full h-8 px-2 rounded bg-slate-100 dark:bg-[#0d1017] border border-slate-200 dark:border-[#2a3142] text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="all">Any</option>
+                    <option value="1w_up">Perf 1W &gt; 0%</option>
+                    <option value="1m_up">Perf 1M &gt; 0%</option>
+                    <option value="1m_up10">Perf 1M &gt;= +10%</option>
+                    <option value="3m_up">Perf 3M &gt; 0%</option>
+                    <option value="ytd_up">Perf YTD &gt; 0%</option>
+                    <option value="1m_down10">Perf 1M &lt;= -10%</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-[#8b95a7]">
+                    MACD Momentum
+                  </label>
+                  <select
+                    value={filters.macdFilter}
+                    onChange={(e) => updateFilter('macdFilter', e.target.value as MacdSignalFilter)}
+                    className="w-full h-8 px-2 rounded bg-slate-100 dark:bg-[#0d1017] border border-slate-200 dark:border-[#2a3142] text-xs text-slate-900 dark:text-white"
+                  >
+                    <option value="all">Any</option>
+                    <option value="bullish">Bullish (Hist &gt; 0)</option>
+                    <option value="bearish">Bearish (Hist &lt; 0)</option>
                   </select>
                 </div>
 
@@ -1527,10 +2023,7 @@ export default function StockScreenerPanel({
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-200 dark:border-[#242a38] bg-slate-50 dark:bg-[#12161f]">
               <button
                 type="button"
-                onClick={() => {
-                  setActivePresetId('all');
-                  setFilters({ ...DEFAULT_SCREENER_FILTERS });
-                }}
+                onClick={() => commitFilters({ ...DEFAULT_SCREENER_FILTERS }, 'all')}
                 className="text-xs text-slate-500 hover:text-slate-900 dark:text-[#8b95a7] dark:hover:text-white cursor-pointer"
               >
                 Reset Semua Filter
