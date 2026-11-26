@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { computeHeikinAshiBars } from '../../shared/movingAverageMath';
 import {
+  INDICATOR_CATALOG,
+  calcATRSeries,
   calcEmaSmaMultiSeries,
   calcMovingAverageSeries,
+  calcSupertrendSeries,
+  calcVWAPSeries,
   createDefaultEmaSmaSlots,
   createDefaultIndicators,
+  createIndicatorInstance,
   extractSourceValue,
   getActiveEmaSmaSlots,
   getIndicatorDisplayTitle,
@@ -147,4 +153,60 @@ test('getIndicatorDisplayTitle formats flexible moving averages clearly', () => 
     }),
     'HMA 55 hl2 +3'
   );
+});
+
+test('calcATRSeries, calcSupertrendSeries, calcVWAPSeries, and computeHeikinAshiBars compute accurate outputs', () => {
+  // 1. ATR
+  const atrBars: OHLCVSourceBar[] = [
+    { timestamp: Date.UTC(2026, 0, 1, 2), open: 100, high: 110, low: 90, close: 105, volume: 1000 }, // TR = 20
+    { timestamp: Date.UTC(2026, 0, 1, 3), open: 105, high: 115, low: 100, close: 112, volume: 2000 }, // TR = 15
+    { timestamp: Date.UTC(2026, 0, 1, 4), open: 112, high: 120, low: 108, close: 118, volume: 1500 }, // TR = 12
+    { timestamp: Date.UTC(2026, 0, 2, 2), open: 118, high: 122, low: 112, close: 120, volume: 3000 }, // new day TR = 10
+    { timestamp: Date.UTC(2026, 0, 2, 3), open: 120, high: 121, low: 95, close: 96, volume: 5000 }, // reversal down
+  ];
+  const atr2 = calcATRSeries(atrBars, 2);
+  assert.equal(atr2[0], undefined);
+  assert.equal(atr2[1], 17.5); // (20 + 15) / 2
+  assert.equal(atr2[2], 14.75); // (17.5 * 1 + 12) / 2
+
+  // 2. VWAP daily session reset vs continuous
+  const vwapSession = calcVWAPSeries(atrBars, 'session');
+  const tp0 = (110 + 90 + 105) / 3;
+  assert.ok(Math.abs((vwapSession[0] ?? 0) - tp0) < 1e-9);
+  // Day 2 resets cleanly at index 3 (timestamp Jan 2)
+  const tp3 = (122 + 112 + 120) / 3;
+  assert.ok(Math.abs((vwapSession[3] ?? 0) - tp3) < 1e-9);
+
+  const vwapWeek = calcVWAPSeries(atrBars, 'week'); // both Jan 1 & Jan 2 2026 are in same Mon-Sun week
+  assert.ok(Math.abs((vwapWeek[3] ?? 0) - tp3) > 1);
+
+  // 3. Supertrend flips cleanly from bullish (+1) to bearish (-1)
+  const stBars: OHLCVSourceBar[] = Array.from({ length: 14 }, (_, i) => {
+    if (i < 10) {
+      const c = 100 + i * 2;
+      return { open: c - 1, high: c + 2, low: c - 2, close: c, volume: 1000 };
+    }
+    const c = 115 - (i - 10) * 14;
+    return { open: c + 4, high: c + 5, low: c - 2, close: c, volume: 2000 };
+  });
+  const st = calcSupertrendSeries(stBars, 3, 1.5);
+  assert.equal(st[2]?.direction, 1);
+  assert.equal(st[st.length - 1]?.direction, -1);
+
+  // 4. Heikin Ashi smoothing preserves timestamp & volume
+  const ha = computeHeikinAshiBars(atrBars);
+  assert.equal(ha.length, atrBars.length);
+  assert.equal(ha[0].close, (100 + 110 + 90 + 105) / 4);
+  assert.equal(ha[0].open, (100 + 105) / 2);
+  assert.equal(ha[1].open, (ha[0].open + ha[0].close) / 2);
+  assert.equal(ha[0].timestamp, atrBars[0].timestamp);
+  assert.equal(ha[0].volume, atrBars[0].volume);
+
+  // 5. Catalog registration checks
+  for (const kind of ['VWAP', 'SUPERTREND', 'ATR']) {
+    assert.ok(INDICATOR_CATALOG.some((c) => c.kind === kind), `Missing catalog entry ${kind}`);
+    const inst = createIndicatorInstance(kind);
+    assert.equal(inst.kind, kind);
+    assert.ok(getIndicatorDisplayTitle(inst).includes(kind));
+  }
 });

@@ -7,8 +7,11 @@ import {
 } from 'klinecharts';
 import {
   EMA_SMA_SLOT_KEYS,
+  calcATRSeries,
   calcEmaSmaMultiSeries,
   calcMovingAverageSeries,
+  calcSupertrendSeries,
+  calcVWAPSeries,
   createDefaultEmaSmaSlots,
   getActiveVolumeSlots,
   hexWithOpacity,
@@ -16,11 +19,21 @@ import {
   lineDashToKLine,
   type EmaSmaSlot,
   type IndicatorInstance,
+  type IndicatorPlotStyle,
   type MovingAverageType,
   type PriceSource,
+  type VwapAnchorMode,
 } from './indicatorModel';
 
 export * from './indicatorModel';
+
+export interface VwapExtendData {
+  vwapAnchor: VwapAnchorMode;
+}
+
+export interface SupertrendExtendData {
+  plots: IndicatorPlotStyle[];
+}
 
 export interface FlexMAExtendData {
   maType: MovingAverageType;
@@ -182,6 +195,125 @@ export function registerCustomIndicators(): void {
       return true;
     },
   });
+
+  // Session / Weekly VWAP Overlay
+  registerIndicator<{ vwap?: number }, number, VwapExtendData>({
+    name: 'VWAP',
+    shortName: 'VWAP',
+    series: 'price',
+    calcParams: [],
+    figures: [{ key: 'vwap', title: 'VWAP: ', type: 'line' }],
+    shouldUpdate: (prev, current) => ({
+      calc: prev.extendData?.vwapAnchor !== current.extendData?.vwapAnchor,
+      draw: true,
+    }),
+    createTooltipDataSource: () => ({
+      name: '',
+      calcParamsText: '',
+      features: [],
+      legends: [],
+    }),
+    calc: (dataList: KLineData[], indicator) => {
+      const anchor = indicator.extendData?.vwapAnchor ?? 'session';
+      const series = calcVWAPSeries(dataList, anchor);
+      return series.map((val) => (val !== undefined ? { vwap: val } : {}));
+    },
+  });
+
+  // Average True Range (ATR) Sub-Pane Volatility Indicator
+  registerIndicator<{ atr?: number }, number>({
+    name: 'ATR',
+    shortName: 'ATR',
+    series: 'normal',
+    calcParams: [14],
+    figures: [{ key: 'atr', title: 'ATR: ', type: 'line' }],
+    calc: (dataList: KLineData[], indicator) => {
+      const length = Number(indicator.calcParams[0]) || 14;
+      const series = calcATRSeries(dataList, length);
+      return series.map((val) => (val !== undefined ? { atr: val } : {}));
+    },
+  });
+
+  // Supertrend Overlay (Separate contiguous green Uptrend and red Downtrend segments)
+  registerIndicator<{ up?: number; down?: number; dir?: number }, number, SupertrendExtendData>({
+    name: 'SUPERTREND',
+    shortName: 'SUPERTREND',
+    series: 'price',
+    calcParams: [10, 3],
+    figures: [
+      { key: 'up', title: 'Up: ', type: 'line' },
+      { key: 'down', title: 'Down: ', type: 'line' },
+    ],
+    shouldUpdate: (prev, current) => ({
+      calc:
+        prev.calcParams?.[0] !== current.calcParams?.[0] ||
+        prev.calcParams?.[1] !== current.calcParams?.[1],
+      draw: true,
+    }),
+    createTooltipDataSource: () => ({
+      name: '',
+      calcParamsText: '',
+      features: [],
+      legends: [],
+    }),
+    calc: (dataList: KLineData[], indicator) => {
+      const period = Number(indicator.calcParams[0]) || 10;
+      const mult = Number(indicator.calcParams[1]) || 3;
+      const series = calcSupertrendSeries(dataList, period, mult);
+      return series.map((pt) => {
+        if (pt.value === undefined || !pt.direction) return {};
+        return pt.direction === 1 ? { up: pt.value, dir: 1 } : { down: pt.value, dir: -1 };
+      });
+    },
+    draw: ({ ctx, chart, indicator, xAxis, yAxis }) => {
+      if (!indicator.visible) return true;
+      const result = indicator.result;
+      if (!result || result.length === 0) return true;
+
+      const visibleRange = chart.getVisibleRange();
+      const startIdx = Math.max(0, visibleRange.from - 2);
+      const endIdx = Math.min(result.length - 1, visibleRange.to + 2);
+      if (endIdx < startIdx) return true;
+
+      const plots = indicator.extendData?.plots;
+      const upPlot = plots?.[0];
+      const downPlot = plots?.[1];
+
+      const drawTrendSegments = (key: 'up' | 'down', color: string, width: number, style: 'solid' | 'dashed' | 'dotted') => {
+        const dash = lineDashToKLine(style);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash(dash.style === 'dashed' ? dash.dashedValue : []);
+
+        let started = false;
+        ctx.beginPath();
+        for (let i = startIdx; i <= endIdx; i++) {
+          const val = result[i]?.[key];
+          if (typeof val === 'number' && Number.isFinite(val)) {
+            const x = xAxis.convertToPixel(i);
+            const y = yAxis.convertToPixel(val);
+            if (!started) {
+              ctx.moveTo(x, y);
+              started = true;
+            } else {
+              ctx.lineTo(x, y);
+            }
+          } else {
+            started = false;
+          }
+        }
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      drawTrendSegments('up', upPlot?.color ?? '#089981', upPlot?.lineWidth ?? 2, upPlot?.lineStyle ?? 'solid');
+      drawTrendSegments('down', downPlot?.color ?? '#F23645', downPlot?.lineWidth ?? 2, downPlot?.lineStyle ?? 'solid');
+      return true;
+    },
+  });
 }
 
 export function buildKLineIndicatorConfig(
@@ -288,6 +420,20 @@ export function buildKLineIndicatorConfig(
             maType: inst.maType ?? 'EMA',
             source: inst.source ?? 'close',
             offset: inst.offset ?? 0,
+          },
+        }
+      : {}),
+    ...(inst.kind === 'VWAP'
+      ? {
+          extendData: {
+            vwapAnchor: inst.vwapAnchor ?? 'session',
+          },
+        }
+      : {}),
+    ...(inst.kind === 'SUPERTREND'
+      ? {
+          extendData: {
+            plots: inst.plots.map((p) => ({ ...p })),
           },
         }
       : {}),

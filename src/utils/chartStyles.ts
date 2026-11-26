@@ -1,5 +1,6 @@
 import type { DeepPartial, Styles } from 'klinecharts';
 import type { ChartCandleType, ThemeMode } from '../types/chart';
+import { TV_DARK_GRID_COLOR, TV_LIGHT_GRID_COLOR } from './chartGrid';
 
 export const CHART_SETTINGS_STORAGE_KEY = 'meridian_chart_settings_v1';
 
@@ -76,8 +77,8 @@ export function buildChartStyles(
 ): DeepPartial<Styles> {
   const isDark = theme === 'dark';
 
-  const gridLine = isDark ? '#222736' : '#eef1f6';
-  const axisLine = isDark ? '#2b3142' : '#d8dee9';
+  const gridLine = isDark ? TV_DARK_GRID_COLOR : TV_LIGHT_GRID_COLOR;
+  const axisLine = isDark ? '#2a2e39' : '#d8dee9';
   const tickText = isDark ? '#8b95a7' : '#64748b';
   const legendText = isDark ? '#d5dce8' : '#1e293b';
   const crosshairLine = isDark ? '#64748b' : '#94a3b8';
@@ -93,7 +94,7 @@ export function buildChartStyles(
       vertical: { show: settings.showGridLines, size: 1, color: gridLine, style: 'solid' },
     },
     candle: {
-      type: candleType,
+      type: candleType === 'heikin_ashi' ? 'candle_solid' : candleType,
       bar: {
         upColor,
         downColor,
@@ -198,12 +199,12 @@ export function buildChartStyles(
     xAxis: {
       axisLine: { show: true, color: axisLine },
       tickText: { color: tickText, size: 11, family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif' },
-      tickLine: { show: true, color: axisLine },
+      tickLine: { show: false, color: axisLine },
     },
     yAxis: {
       axisLine: { show: true, color: axisLine },
       tickText: { color: tickText, size: 11, family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif' },
-      tickLine: { show: true, color: axisLine },
+      tickLine: { show: false, color: axisLine },
     },
     separator: {
       size: 1,

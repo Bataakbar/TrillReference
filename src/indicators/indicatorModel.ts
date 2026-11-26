@@ -1,17 +1,25 @@
 import {
+  calcATRSeries,
   calcMovingAverageSeries,
+  calcSupertrendSeries,
+  calcVWAPSeries,
   extractSourceValue,
   type MovingAverageType,
   type OHLCVSourceBar,
   type PriceSource,
+  type VwapAnchorMode,
 } from '../../shared/movingAverageMath.js';
 
 export {
+  calcATRSeries,
   calcMovingAverageSeries,
+  calcSupertrendSeries,
+  calcVWAPSeries,
   extractSourceValue,
   type MovingAverageType,
   type OHLCVSourceBar,
   type PriceSource,
+  type VwapAnchorMode,
 };
 export type LineDashPreset = 'solid' | 'dashed' | 'dotted';
 export type PlotVisualType = 'line' | 'smooth' | 'step' | 'circles';
@@ -69,6 +77,8 @@ export interface IndicatorInstance {
   /** Used for FLEX_MA and EMA_SMA */
   source?: PriceSource;
   offset?: number;
+  /** Used when kind === 'VWAP' */
+  vwapAnchor?: VwapAnchorMode;
   /** Numeric calculation parameters (e.g. [20] for FLEX_MA, [20, 2] for BOLL, [12, 26, 9] for MACD) */
   params: number[];
   /** Per-line visual styling */
@@ -204,6 +214,36 @@ export const INDICATOR_CATALOG: readonly IndicatorCatalogEntry[] = [
     defaultParams: [20],
     defaultPlots: [
       { key: 'ma', label: 'MA Line', color: '#2962FF', lineWidth: 2, lineStyle: 'solid', smooth: false },
+    ],
+  },
+  {
+    kind: 'VWAP',
+    name: 'VWAP (Volume Weighted Average Price)',
+    shortDesc: 'Institutional fair-value benchmark anchored daily or weekly',
+    pane: 'main',
+    allowMultiple: false,
+    visualShape: 'line',
+    paramSpecs: [],
+    defaultParams: [],
+    defaultPlots: [
+      { key: 'vwap', label: 'VWAP Line', color: '#F59E0B', lineWidth: 2, lineStyle: 'solid', smooth: false },
+    ],
+  },
+  {
+    kind: 'SUPERTREND',
+    name: 'Supertrend',
+    shortDesc: 'ATR-based trend-following support & resistance trailing line',
+    pane: 'main',
+    allowMultiple: false,
+    visualShape: 'line',
+    paramSpecs: [
+      { label: 'ATR Period', min: 2, max: 100 },
+      { label: 'Multiplier', min: 0.5, max: 10, step: 0.5 },
+    ],
+    defaultParams: [10, 3],
+    defaultPlots: [
+      { key: 'up', label: 'Uptrend Line (Bull)', color: '#089981', lineWidth: 2, lineStyle: 'solid', smooth: false },
+      { key: 'down', label: 'Downtrend Line (Bear)', color: '#F23645', lineWidth: 2, lineStyle: 'solid', smooth: false },
     ],
   },
   {
@@ -401,6 +441,19 @@ export const INDICATOR_CATALOG: readonly IndicatorCatalogEntry[] = [
       { key: 'ao', label: 'AO Histogram', color: '#26A69A', lineWidth: 1.5, lineStyle: 'solid', smooth: false },
     ],
   },
+  {
+    kind: 'ATR',
+    name: 'Average True Range (ATR)',
+    shortDesc: 'Market volatility & stop-loss distance measure',
+    pane: 'sub',
+    allowMultiple: false,
+    visualShape: 'line',
+    paramSpecs: [{ label: 'ATR Length', min: 2, max: 100 }],
+    defaultParams: [14],
+    defaultPlots: [
+      { key: 'atr', label: 'ATR Line', color: '#F97316', lineWidth: 1.5, lineStyle: 'solid', smooth: false },
+    ],
+  },
 ];
 
 export function getCatalogEntry(kind: string): IndicatorCatalogEntry | undefined {
@@ -504,6 +557,7 @@ export function createIndicatorInstance(
     ...(entry.kind === 'FLEX_MA'
       ? { maType: 'EMA' as MovingAverageType, source: 'close' as PriceSource, offset: 0 }
       : {}),
+    ...(entry.kind === 'VWAP' ? { vwapAnchor: 'session' as VwapAnchorMode } : {}),
     params,
     plots,
     ...overrides,
@@ -526,6 +580,9 @@ export function getIndicatorDisplayTitle(inst: IndicatorInstance): string {
     return active.length > 0
       ? `VOL (${active.map((s) => `MA${s.length}`).join(', ')})`
       : 'VOL';
+  }
+  if (inst.kind === 'VWAP') {
+    return inst.vwapAnchor === 'week' ? 'VWAP (Week)' : 'VWAP';
   }
   return `${inst.kind} (${inst.params.join(', ')})`;
 }

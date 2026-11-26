@@ -540,6 +540,23 @@ export default function IndicatorSettingsModal({
                     />
                   </div>
                 </>
+              ) : draft.kind === 'VWAP' ? (
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="ind-vwap-anchor" className="text-[13px] text-slate-700 dark:text-[#d1d4dc]">
+                    Anchor Period
+                  </label>
+                  <select
+                    id="ind-vwap-anchor"
+                    value={draft.vwapAnchor ?? 'session'}
+                    onChange={(e) =>
+                      applyDraft({ ...draft, vwapAnchor: e.target.value as 'session' | 'week' })
+                    }
+                    className="w-48 h-9 px-2.5 rounded-md bg-slate-50 dark:bg-[#131519] border border-slate-300 dark:border-[#363a45] text-xs text-slate-900 dark:text-[#f0f3fa] outline-none focus:border-[#2962ff]"
+                  >
+                    <option value="session">Session (Daily)</option>
+                    <option value="week">Week (Weekly)</option>
+                  </select>
+                </div>
               ) : (
                 (catalog?.paramSpecs ?? []).map((spec, idx) => (
                   <div key={spec.label} className="flex items-center justify-between gap-4">

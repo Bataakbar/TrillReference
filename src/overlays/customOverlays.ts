@@ -104,9 +104,10 @@ export const DRAWING_GROUPS: readonly DrawingToolGroup[] = [
   },
   {
     id: 'patterns',
-    label: 'Long Position',
+    label: 'Positions (Long / Short)',
     tools: [
       { key: 'longPosition', label: 'Long Position (R:R)', hint: 'Click Entry, then Target (TP), then Stop Loss (SL)' },
+      { key: 'shortPosition', label: 'Short Position (R:R)', hint: 'Click Entry, then Target (TP below), then Stop Loss (SL above)' },
     ],
   },
   {

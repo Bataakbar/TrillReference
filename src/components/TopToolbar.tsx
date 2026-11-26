@@ -56,6 +56,7 @@ import type {
 
 const CHART_TYPES: ReadonlyArray<{ key: ChartCandleType; label: string }> = [
   { key: 'candle_solid', label: 'Candles' },
+  { key: 'heikin_ashi', label: 'Heikin Ashi' },
   { key: 'candle_stroke', label: 'Hollow Candles' },
   { key: 'candle_up_stroke', label: 'Up Hollow' },
   { key: 'ohlc', label: 'OHLC Bars' },

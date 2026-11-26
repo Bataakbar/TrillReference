@@ -5,7 +5,8 @@ export type ChartCandleType =
   | 'candle_stroke'
   | 'candle_up_stroke'
   | 'ohlc'
-  | 'area';
+  | 'area'
+  | 'heikin_ashi';
 
 export type YAxisScaleType = 'normal' | 'logarithm' | 'percentage';
 

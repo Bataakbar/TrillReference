@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react';
+import { computeHeikinAshiBars } from '../../shared/movingAverageMath';
 import {
   TIMEFRAMES,
   getPricePrecision,
@@ -39,7 +40,11 @@ import {
   saveChartSettings,
   type ChartDisplaySettings,
 } from '../utils/chartStyles';
-import { registerIdxYAxes, resolveCandleYAxisName } from '../utils/idxPriceAxis';
+import {
+  TV_XAXIS_NAME,
+  registerChartAxes,
+  resolveCandleYAxisName,
+} from '../utils/idxPriceAxis';
 import {
   DEFAULT_BAR_SPACE,
   MAX_BAR_SPACE,
@@ -361,6 +366,17 @@ export default function TradingViewWorkspace({
   // Sync refs
   const themeRef = useRef<ThemeMode>(theme);
   themeRef.current = theme;
+  const chartTypeRef = useRef<ChartCandleType>(chartType);
+  chartTypeRef.current = chartType;
+  const prevChartTypeRef = useRef<ChartCandleType>(chartType);
+  const rawBarsCacheRef = useRef<{
+    symbol: string;
+    tfKey: string;
+    bars: KLineData[];
+    nextCursor: number | null;
+    hasMore: boolean;
+  } | null>(null);
+  const forceReloadRef = useRef<boolean>(false);
   activeSymbolRef.current = symbol;
   activeTfRef.current = timeframe;
   drawingsLockedRef.current = drawingsLocked;
@@ -825,7 +841,7 @@ export default function TradingViewWorkspace({
 
     registerCustomOverlays();
     registerCustomIndicators();
-    registerIdxYAxes();
+    registerChartAxes();
 
     const chart = init(el, {
       styles: buildChartStyles('dark', 'candle_solid', window.innerWidth < 640, chartSettings),
@@ -838,6 +854,7 @@ export default function TradingViewWorkspace({
     });
     if (!chart) return;
     chartRef.current = chart;
+    chart.overrideXAxis({ name: TV_XAXIS_NAME });
 
     // Mount all saved / default flexible indicators
     for (const inst of indicatorsRef.current) {
@@ -872,6 +889,34 @@ export default function TradingViewWorkspace({
           setErrorMsg('');
 
           try {
+            const cachedRaw = rawBarsCacheRef.current;
+            if (
+              !forceReloadRef.current &&
+              cachedRaw &&
+              cachedRaw.symbol === requestTicker &&
+              cachedRaw.tfKey === tfKey &&
+              cachedRaw.bars.length > 0
+            ) {
+              paginationRef.current = {
+                nonce: myNonce,
+                symbol: requestTicker,
+                tfKey,
+                nextCursor: cachedRaw.nextCursor,
+                hasMore: cachedRaw.hasMore,
+              };
+              const displayBars =
+                chartTypeRef.current === 'heikin_ashi'
+                  ? computeHeikinAshiBars(cachedRaw.bars)
+                  : cachedRaw.bars;
+              setLoadingChart(false);
+              callback(displayBars, { forward: cachedRaw.hasMore, backward: false });
+              window.requestAnimationFrame(() => {
+                restoreDrawingsForSymbol(requestTicker);
+              });
+              return;
+            }
+            forceReloadRef.current = false;
+
             const res = await fetch(
               `/api/chart?symbol=${encodeURIComponent(requestTicker)}&tf=${encodeURIComponent(tfKey)}`,
               { signal: controller.signal }
@@ -893,6 +938,14 @@ export default function TradingViewWorkspace({
             const nextCursor = data.pagination?.nextCursor ?? null;
             const hasMore = Boolean(data.pagination?.hasMore) && nextCursor !== null;
 
+            rawBarsCacheRef.current = {
+              symbol: requestTicker,
+              tfKey,
+              bars,
+              nextCursor,
+              hasMore,
+            };
+
             paginationRef.current = {
               nonce: myNonce,
               symbol: requestTicker,
@@ -901,7 +954,9 @@ export default function TradingViewWorkspace({
               hasMore,
             };
 
-            callback(bars, { forward: hasMore, backward: false });
+            const displayBars =
+              chartTypeRef.current === 'heikin_ashi' ? computeHeikinAshiBars(bars) : bars;
+            callback(displayBars, { forward: hasMore, backward: false });
 
             window.requestAnimationFrame(() => {
               restoreDrawingsForSymbol(requestTicker);
@@ -963,12 +1018,29 @@ export default function TradingViewWorkspace({
             }
 
             const oldestLoadedTs =
-              chart.getDataList()[0]?.timestamp ?? timestamp ?? Number.POSITIVE_INFINITY;
+              rawBarsCacheRef.current?.symbol === requestTicker &&
+              rawBarsCacheRef.current?.tfKey === tfKey &&
+              rawBarsCacheRef.current.bars.length > 0
+                ? rawBarsCacheRef.current.bars[0].timestamp
+                : chart.getDataList()[0]?.timestamp ?? timestamp ?? Number.POSITIVE_INFINITY;
             const rawBars = Array.isArray(data.bars) ? data.bars : [];
             const olderBars = rawBars.filter((b) => b.timestamp < oldestLoadedTs);
 
             const nextCursor = data.pagination?.nextCursor ?? null;
             const nextHasMore = Boolean(data.pagination?.hasMore) && nextCursor !== null;
+
+            if (
+              rawBarsCacheRef.current &&
+              rawBarsCacheRef.current.symbol === requestTicker &&
+              rawBarsCacheRef.current.tfKey === tfKey
+            ) {
+              rawBarsCacheRef.current = {
+                ...rawBarsCacheRef.current,
+                bars: [...olderBars, ...rawBarsCacheRef.current.bars],
+                nextCursor,
+                hasMore: nextHasMore,
+              };
+            }
 
             paginationRef.current = {
               nonce: capturedNonce,
@@ -978,7 +1050,9 @@ export default function TradingViewWorkspace({
               hasMore: nextHasMore,
             };
 
-            callback(olderBars, { forward: nextHasMore, backward: false });
+            const displayOlder =
+              chartTypeRef.current === 'heikin_ashi' ? computeHeikinAshiBars(olderBars) : olderBars;
+            callback(displayOlder, { forward: nextHasMore, backward: false });
           } catch {
             if (controller.signal.aborted || capturedNonce !== reloadNonceRef.current) {
               return;
@@ -1010,7 +1084,25 @@ export default function TradingViewWorkspace({
             if (symInfo.ticker !== activeSymbolRef.current) return;
             if (data.meta) setMeta(data.meta);
             if (data.bars && data.bars.length > 0) {
-              callback(data.bars[data.bars.length - 1]);
+              const latestBar = data.bars[data.bars.length - 1];
+              const cachedRaw = rawBarsCacheRef.current;
+              if (cachedRaw && cachedRaw.symbol === symInfo.ticker && cachedRaw.tfKey === tfKey) {
+                const updatedBars = [...cachedRaw.bars];
+                const lastIdx = updatedBars.length - 1;
+                if (lastIdx >= 0 && updatedBars[lastIdx].timestamp === latestBar.timestamp) {
+                  updatedBars[lastIdx] = latestBar;
+                } else {
+                  updatedBars.push(latestBar);
+                }
+                rawBarsCacheRef.current = { ...cachedRaw, bars: updatedBars };
+                const outBar =
+                  chartTypeRef.current === 'heikin_ashi'
+                    ? computeHeikinAshiBars(updatedBars)[updatedBars.length - 1]
+                    : latestBar;
+                callback(outBar);
+              } else {
+                callback(latestBar);
+              }
             }
           } catch {
             // Silent transient polling failure
@@ -1052,6 +1144,10 @@ export default function TradingViewWorkspace({
     const precision = getPricePrecision(symbol);
     const forceReload = reloadTick !== lastReloadTickRef.current;
     lastReloadTickRef.current = reloadTick;
+    if (forceReload) {
+      forceReloadRef.current = true;
+      rawBarsCacheRef.current = null;
+    }
 
     if (loadedOverlaySymbolRef.current && loadedOverlaySymbolRef.current !== symbol) {
       pendingOverlayIdRef.current = null;
@@ -1094,9 +1190,16 @@ export default function TradingViewWorkspace({
 
   // Apply theme, candle type, compact legend, and chart settings updates
   useEffect(() => {
-    chartRef.current?.setStyles(
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.setStyles(
       buildChartStyles(theme, chartType, isCompactViewport, chartSettings)
     );
+    const prevType = prevChartTypeRef.current;
+    prevChartTypeRef.current = chartType;
+    if (prevType !== chartType && (prevType === 'heikin_ashi' || chartType === 'heikin_ashi')) {
+      chart.resetData();
+    }
   }, [theme, chartType, isCompactViewport, chartSettings]);
 
   // Apply Y-axis scale mode (Price / Log) & IDX tick-size formatting via KLineChart v10 overrideYAxis
@@ -1926,8 +2029,8 @@ export default function TradingViewWorkspace({
           onClearAll={handleRequestClearAllDrawings}
         />
 
-        {/* Central Chart Canvas */}
-        <main className="relative flex-1 min-w-0 min-h-0 bg-white dark:bg-[#181C27]">
+        {/* Central Chart Canvas (TradingView gradient & grid canvas backdrop) */}
+        <main className="relative flex-1 min-w-0 min-h-0 bg-white dark:bg-gradient-to-b dark:from-[#131722] dark:to-[#181C27]">
           {/* TradingView-Style On-Chart Active Indicator Legend */}
           <ChartIndicatorLegend
             indicators={indicators}
@@ -2230,6 +2333,12 @@ export default function TradingViewWorkspace({
         }}
         onToggleFlag={handleToggleWatchlistFlag}
         onAddToActiveWatchlist={(nextSym) => handleAddSymbolToTargetList(activeWatchlistRef, nextSym)}
+        onSaveMatchesToWatchlist={(symbolsList, suggestedName) => {
+          handleCreateCustomWatchlist(suggestedName, symbolsList);
+          if (window.innerWidth >= 1024) {
+            setWatchlistOpen(true);
+          }
+        }}
       />
 
       {/* Mobile Bottom Navigation Bar (TradingView Mobile style on phones < 768px) */}

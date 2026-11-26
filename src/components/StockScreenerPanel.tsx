@@ -108,6 +108,7 @@ interface StockScreenerPanelProps {
   onSelectSymbol: (symbol: string) => void;
   onToggleFlag: (symbol: string) => void;
   onAddToActiveWatchlist?: (symbol: string) => void;
+  onSaveMatchesToWatchlist?: (symbols: string[], suggestedName: string) => void;
 }
 
 const MARKET_OPTIONS: ReadonlyArray<{ id: ScreenerMarket; label: string; badge: string }> = [
@@ -212,6 +213,7 @@ export default function StockScreenerPanel({
   onSelectSymbol,
   onToggleFlag,
   onAddToActiveWatchlist,
+  onSaveMatchesToWatchlist,
 }: StockScreenerPanelProps) {
   const [market, setMarket] = useState<ScreenerMarket>(() =>
     activeSymbol.toUpperCase().endsWith('.JK') ? 'ID' : 'US'
@@ -269,6 +271,8 @@ export default function StockScreenerPanel({
   const [allFiltersOpen, setAllFiltersOpen] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
+  const [savedListFlash, setSavedListFlash] = useState(false);
+  const savedListTimerRef = useRef<number | null>(null);
   const [customHeightPx, setCustomHeightPx] = useState<number | null>(null);
   const [isResizing, setIsResizing] = useState(false);
 
@@ -290,6 +294,10 @@ export default function StockScreenerPanel({
     return () => {
       resizeCleanupRef.current?.();
       resizeCleanupRef.current = null;
+      if (savedListTimerRef.current !== null) {
+        window.clearTimeout(savedListTimerRef.current);
+        savedListTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -1434,6 +1442,39 @@ export default function StockScreenerPanel({
             <Download className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">CSV</span>
           </button>
+
+          {onSaveMatchesToWatchlist && (
+            <button
+              type="button"
+              data-testid="screener-save-watchlist"
+              disabled={sortedRows.length === 0}
+              onClick={() => {
+                const topSymbols = sortedRows.slice(0, 50).map((r) => r.symbol);
+                if (topSymbols.length === 0) return;
+                const suggestedName = `${activePresetLabel} (${activeTfDef.label})`;
+                onSaveMatchesToWatchlist(topSymbols, suggestedName);
+                setSavedListFlash(true);
+                if (savedListTimerRef.current !== null) {
+                  window.clearTimeout(savedListTimerRef.current);
+                }
+                savedListTimerRef.current = window.setTimeout(() => {
+                  setSavedListFlash(false);
+                  savedListTimerRef.current = null;
+                }, 2200);
+              }}
+              title={`Simpan hingga 50 hasil filter ke Watchlist baru (${sortedRows.length} cocok)`}
+              className={`h-7 px-2 rounded flex items-center gap-1 text-xs transition-colors disabled:opacity-40 cursor-pointer ${
+                savedListFlash
+                  ? 'bg-[#089981]/15 text-[#089981] dark:text-[#2dd4bf] font-semibold'
+                  : 'text-slate-600 hover:bg-slate-200/70 dark:text-[#98a2b3] dark:hover:bg-[#1e2433] dark:hover:text-white'
+              }`}
+            >
+              {savedListFlash ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+              <span className="hidden md:inline">
+                {savedListFlash ? 'Saved!' : `Save List (${Math.min(50, sortedRows.length)})`}
+              </span>
+            </button>
+          )}
 
           {columnsMenuOpen && (
             <div className="absolute right-0 top-8 w-64 rounded-lg bg-white dark:bg-[#161a24] border border-slate-200 dark:border-[#2a3142] shadow-2xl p-2 z-50">
