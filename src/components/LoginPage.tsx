@@ -83,25 +83,18 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
 
       {/* Relaxed monochrome niche-style login card */}
       <div className="relative w-full max-w-[404px] rounded-2xl bg-[#0d0d0f]/82 border border-white/[0.12] shadow-[0_28px_90px_rgba(0,0,0,0.85)] p-7 sm:p-8 backdrop-blur-xl">
-        <div className="flex items-start justify-between gap-3 mb-7">
-          <div className="flex items-center gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-white/[0.08] border border-white/[0.14] flex items-center justify-center text-white shrink-0">
-              <CandlestickChart className="w-5 h-5 stroke-[1.75]" />
-            </div>
-            <div>
-              <h1 className="text-[19px] font-semibold tracking-tight text-white leading-snug">
-                TrillReference
-              </h1>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                Financial Charting &amp; Cloud Workspace
-              </p>
-            </div>
+        <div className="flex items-center gap-3.5 mb-7">
+          <div className="w-10 h-10 rounded-xl bg-white/[0.08] border border-white/[0.14] flex items-center justify-center text-white shrink-0">
+            <CandlestickChart className="w-5 h-5 stroke-[1.75]" />
           </div>
-
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/[0.1] px-2.5 py-1 text-[10px] font-medium tracking-wide text-neutral-300 uppercase shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-white/80" />
-            Desk
-          </span>
+          <div>
+            <h1 className="text-[19px] font-semibold tracking-tight text-white leading-snug">
+              TrillReference
+            </h1>
+            <p className="text-xs text-neutral-400 mt-0.5">
+              Financial Charting &amp; Cloud Workspace
+            </p>
+          </div>
         </div>
 
         <p className="text-[13px] leading-relaxed text-neutral-400 mb-6">
