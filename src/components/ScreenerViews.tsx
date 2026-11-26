@@ -10,6 +10,7 @@ import {
 import {
   CANDLE_PATTERN_META,
   layoutTreemapRects,
+  resolveRowEma,
   type CandlePatternId,
   type HeatmapColorMetric,
   type ScreenerRow,
@@ -141,6 +142,7 @@ export function MiniChartGridView({
   activeSymbol,
   flagMap,
   showEma9Overlay,
+  emaPeriod = 9,
   chartStyle,
   onSelectSymbol,
   onToggleFlag,
@@ -149,6 +151,7 @@ export function MiniChartGridView({
   activeSymbol: string;
   flagMap: WatchlistFlagMap;
   showEma9Overlay: boolean;
+  emaPeriod?: number;
   chartStyle: 'area' | 'line';
   onSelectSymbol: (symbol: string) => void;
   onToggleFlag: (symbol: string) => void;
@@ -165,13 +168,14 @@ export function MiniChartGridView({
           const avatar = getTickerAvatar(row.symbol);
           const isUp = row.changePercent >= 0;
           const stroke = isUp ? '#089981' : '#f23645';
+          const emaSnap = resolveRowEma(row, emaPeriod);
 
           const series =
             row.sparkline && row.sparkline.length >= 2
               ? row.sparkline
               : [row.price, row.price];
           const domainValues =
-            showEma9Overlay && row.ema9 !== null ? [...series, row.ema9] : series;
+            showEma9Overlay && emaSnap.value !== null ? [...series, emaSnap.value] : series;
           const minV = Math.min(...domainValues);
           const maxV = Math.max(...domainValues);
           const span = maxV - minV || Math.max(1, maxV * 0.02);
@@ -192,8 +196,8 @@ export function MiniChartGridView({
             .join(' ');
           const areaPath = `${linePath} L${width},${height} L0,${height} Z`;
           const ema9Y =
-            showEma9Overlay && row.ema9 !== null
-              ? Number((height - ((row.ema9 - lo) / range) * height).toFixed(1))
+            showEma9Overlay && emaSnap.value !== null
+              ? Number((height - ((emaSnap.value - lo) / range) * height).toFixed(1))
               : null;
           const gradId = `tvChartGrad-${row.symbol.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
@@ -301,16 +305,16 @@ export function MiniChartGridView({
                     strokeLinecap="round"
                   />
                 </svg>
-                {showEma9Overlay && row.ema9DiffPct !== null && (
+                {showEma9Overlay && emaSnap.diffPct !== null && (
                   <span
                     className={`absolute right-1.5 top-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold backdrop-blur-xs ${
-                      row.ema9DiffPct >= 0
+                      emaSnap.diffPct >= 0
                         ? 'bg-[#089981]/15 text-[#089981] dark:text-[#2dd4bf]'
                         : 'bg-[#f23645]/15 text-[#f23645] dark:text-[#fca5a5]'
                     }`}
                   >
-                    EMA9 {row.ema9DiffPct > 0 ? '+' : ''}
-                    {row.ema9DiffPct.toFixed(1)}%
+                    EMA{emaSnap.period} {emaSnap.diffPct > 0 ? '+' : ''}
+                    {emaSnap.diffPct.toFixed(1)}%
                   </span>
                 )}
               </div>

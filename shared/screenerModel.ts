@@ -82,6 +82,7 @@ export interface ScreenerTechnicalSnapshot {
   techScore: number;
   techRating: TechRatingLabel;
   sparkline: number[];
+  closeHistory?: number[];
   barCount: number;
 }
 
@@ -117,9 +118,14 @@ export interface ScreenerRow extends ScreenerTechnicalSnapshot {
 
 export type Ema9FilterMode =
   | 'all'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
   | 'above_ema9'
   | 'cross_above_ema9'
   | 'below_ema9'
+  | 'cross_below_ema9'
   | 'above_ema9_20'
   | 'golden_stack';
 
@@ -260,6 +266,7 @@ export interface ScreenerFilterState {
   sector: string;
   flaggedOnly: boolean;
   ema9Mode: Ema9FilterMode;
+  emaPeriod: number;
   maTrendMode: MaTrendFilterMode;
   changeBand: ChangeBandFilter;
   rvolMin: number | null;
@@ -497,6 +504,7 @@ export const DEFAULT_SCREENER_FILTERS: ScreenerFilterState = {
   sector: 'All sectors',
   flaggedOnly: false,
   ema9Mode: 'all',
+  emaPeriod: 9,
   maTrendMode: 'all',
   changeBand: 'all',
   rvolMin: null,
@@ -514,6 +522,110 @@ export const DEFAULT_SCREENER_FILTERS: ScreenerFilterState = {
   customRules: [],
 };
 
+export function sanitizeEmaPeriod(period?: number | null): number {
+  if (typeof period !== 'number' || !Number.isFinite(period)) return 9;
+  return Math.max(1, Math.min(500, Math.round(period)));
+}
+
+export function formatEmaFilterLabel(mode: Ema9FilterMode, period: number): string {
+  const p = sanitizeEmaPeriod(period);
+  switch (mode) {
+    case 'above_ema9':
+    case 'gt':
+      return `Harga > EMA ${p}`;
+    case 'gte':
+      return `Harga >= EMA ${p}`;
+    case 'below_ema9':
+    case 'lt':
+      return `Harga < EMA ${p}`;
+    case 'lte':
+      return `Harga <= EMA ${p}`;
+    case 'cross_above_ema9':
+      return `Cross ↑ EMA ${p}`;
+    case 'cross_below_ema9':
+      return `Cross ↓ EMA ${p}`;
+    case 'above_ema9_20':
+      return 'Harga > EMA 9 > 20';
+    case 'golden_stack':
+      return 'Trend (> EMA 9 > 20 > SMA 50)';
+    case 'all':
+    default:
+      return `Harga vs EMA ${p}`;
+  }
+}
+
+export interface ResolvedEmaSnapshot {
+  period: number;
+  value: number | null;
+  diffPct: number | null;
+  signal: Ema9Signal | null;
+}
+
+export function resolveRowEma(row: ScreenerRow, rawPeriod?: number | null): ResolvedEmaSnapshot {
+  const p = sanitizeEmaPeriod(rawPeriod);
+  if (p === 9) {
+    return {
+      period: 9,
+      value: row.ema9,
+      diffPct: row.ema9DiffPct,
+      signal: row.ema9Signal,
+    };
+  }
+  const hist = row.closeHistory;
+  if (Array.isArray(hist) && hist.length >= p) {
+    const series = calcEMA(hist, p);
+    const lastIdx = hist.length - 1;
+    const val = roundFinite(series[lastIdx], 4);
+    if (val !== null) {
+      const prevEma = lastIdx > 0 ? series[lastIdx - 1] : undefined;
+      const prevClose = lastIdx > 0 ? hist[lastIdx - 1] : undefined;
+      let signal: Ema9Signal;
+      if (row.price > val) {
+        signal =
+          prevEma !== undefined && prevClose !== undefined && prevClose <= prevEma
+            ? 'cross_above'
+            : 'above';
+      } else {
+        signal =
+          prevEma !== undefined && prevClose !== undefined && prevClose >= prevEma
+            ? 'cross_below'
+            : 'below';
+      }
+      return {
+        period: p,
+        value: val,
+        diffPct: pctDiff(row.price, val),
+        signal,
+      };
+    }
+  }
+  if (p === 20 && row.ema20 !== null) {
+    return {
+      period: 20,
+      value: row.ema20,
+      diffPct: row.ema20DiffPct,
+      signal: row.price > row.ema20 ? 'above' : 'below',
+    };
+  }
+  if (p === 50 && row.ema50 !== null) {
+    return {
+      period: 50,
+      value: row.ema50,
+      diffPct: row.ema50DiffPct,
+      signal: row.price > row.ema50 ? 'above' : 'below',
+    };
+  }
+  if (p === 200 && row.ema200 !== null) {
+    return {
+      period: 200,
+      value: row.ema200,
+      diffPct: pctDiff(row.price, row.ema200),
+      signal: row.price > row.ema200 ? 'above' : 'below',
+    };
+  }
+  return { period: p, value: null, diffPct: null, signal: null };
+}
+
 export function normalizeScreenerFilters(
   partial?: Partial<ScreenerFilterState> | null
 ): ScreenerFilterState {
@@ -523,6 +635,7 @@ export function normalizeScreenerFilters(
   return {
     ...DEFAULT_SCREENER_FILTERS,
     ...partial,
+    emaPeriod: sanitizeEmaPeriod(partial.emaPeriod),
     customRules: Array.isArray(partial.customRules) ? [...partial.customRules] : [],
   };
 }
@@ -960,6 +1073,7 @@ export function computeScreenerTechnicals(
       techScore: 0,
       techRating: 'Neutral',
       sparkline: [],
+      closeHistory: [],
       barCount: 0,
     };
   }
@@ -1103,10 +1217,10 @@ export function computeScreenerTechnicals(
         ? maScore
         : osScore;
 
-  const sparkline = closes
-    .slice(-30)
+  const closeHistory = closes
     .map((c) => roundFinite(c, 4))
     .filter((v): v is number => v !== null);
+  const sparkline = closeHistory.slice(-30);
 
   return {
     ema9,
@@ -1149,6 +1263,7 @@ export function computeScreenerTechnicals(
     techScore,
     techRating: scoreToTechRating(techScore),
     sparkline,
+    closeHistory,
     barCount: workBars.length,
   };
 }
@@ -1246,15 +1361,27 @@ export function filterScreenerRows(
       if (!flaggedSet || !flaggedSet.has(row.symbol.toUpperCase())) return false;
     }
 
+    const emaSnap = resolveRowEma(row, filters.emaPeriod);
     switch (filters.ema9Mode) {
       case 'above_ema9':
-        if (row.ema9 === null || row.price <= row.ema9) return false;
+      case 'gt':
+        if (emaSnap.value === null || !(row.price > emaSnap.value)) return false;
         break;
-      case 'cross_above_ema9':
-        if (row.ema9Signal !== 'cross_above') return false;
+      case 'gte':
+        if (emaSnap.value === null || !(row.price >= emaSnap.value)) return false;
         break;
       case 'below_ema9':
-        if (row.ema9 === null || row.price >= row.ema9) return false;
+      case 'lt':
+        if (emaSnap.value === null || !(row.price < emaSnap.value)) return false;
+        break;
+      case 'lte':
+        if (emaSnap.value === null || !(row.price <= emaSnap.value)) return false;
+        break;
+      case 'cross_above_ema9':
+        if (emaSnap.signal !== 'cross_above') return false;
+        break;
+      case 'cross_below_ema9':
+        if (emaSnap.signal !== 'cross_below') return false;
         break;
       case 'above_ema9_20':
         if (row.ema9 === null || row.ema20 === null || !(row.price > row.ema9 && row.ema9 > row.ema20)) {
@@ -1455,9 +1582,11 @@ const TECH_RATING_RANK: Record<TechRatingLabel, number> = {
 
 export function sortScreenerRows(
   rows: ScreenerRow[],
-  sort: ScreenerSortState
+  sort: ScreenerSortState,
+  options?: { emaPeriod?: number }
 ): ScreenerRow[] {
   const dir = sort.direction === 'asc' ? 1 : -1;
+  const activeEmaPeriod = sanitizeEmaPeriod(options?.emaPeriod);
   return [...rows].sort((a, b) => {
     const key = sort.key;
     if (key === 'symbol' || key === 'sector' || key === 'analystRating') {
@@ -1478,8 +1607,14 @@ export function sortScreenerRows(
       if (cmp !== 0) return cmp;
       return a.symbol.localeCompare(b.symbol);
     }
-    const av = a[key];
-    const bv = b[key];
+    let av: unknown = a[key];
+    let bv: unknown = b[key];
+    if (activeEmaPeriod !== 9 && (key === 'ema9' || key === 'ema9DiffPct')) {
+      const ra = resolveRowEma(a, activeEmaPeriod);
+      const rb = resolveRowEma(b, activeEmaPeriod);
+      av = key === 'ema9' ? ra.value : ra.diffPct;
+      bv = key === 'ema9' ? rb.value : rb.diffPct;
+    }
     const aNum = typeof av === 'number' && Number.isFinite(av) ? av : null;
     const bNum = typeof bv === 'number' && Number.isFinite(bv) ? bv : null;
     if (aNum === null && bNum === null) return a.symbol.localeCompare(b.symbol);

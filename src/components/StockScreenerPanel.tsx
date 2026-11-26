@@ -38,7 +38,10 @@ import {
   SCREENER_TABS,
   countActiveScreenerFilters,
   filterScreenerRows,
+  formatEmaFilterLabel,
   normalizeScreenerFilters,
+  resolveRowEma,
+  sanitizeEmaPeriod,
   sortScreenerRows,
   type ChangeBandFilter,
   type Ema9FilterMode,
@@ -116,14 +119,18 @@ const TF_OPTIONS: ReadonlyArray<{ id: ScreenerTimeframe; label: string }> = [
   { id: '15m', label: '15m' },
 ];
 
-const EMA9_OPTIONS: ReadonlyArray<{ id: Ema9FilterMode; label: string }> = [
-  { id: 'all', label: 'EMA 9: All' },
-  { id: 'above_ema9', label: 'Harga > EMA 9' },
-  { id: 'cross_above_ema9', label: 'Cross Up EMA 9' },
-  { id: 'above_ema9_20', label: 'Harga > EMA 9 > 20' },
-  { id: 'golden_stack', label: 'Trend (> EMA 9 > 20 > SMA 50)' },
-  { id: 'below_ema9', label: 'Harga < EMA 9' },
+const EMA_OPERATOR_OPTIONS: ReadonlyArray<{
+  id: 'gt' | 'lt' | 'lte' | 'gte';
+  symbol: string;
+  label: string;
+}> = [
+  { id: 'gt', symbol: '>', label: 'Lebih besar dari (>)' },
+  { id: 'lt', symbol: '<', label: 'Lebih kecil dari (<)' },
+  { id: 'lte', symbol: '<=', label: 'Kurang dari / sama dengan (<=)' },
+  { id: 'gte', symbol: '>=', label: 'Lebih dari / sama dengan (>=)' },
 ];
+
+const QUICK_EMA_PERIODS = [5, 9, 13, 20, 21, 50, 100, 200] as const;
 
 const VIEW_MODE_OPTIONS: ReadonlyArray<{
   id: ScreenerViewMode;
@@ -241,6 +248,9 @@ export default function StockScreenerPanel({
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const [emaPopoverOpen, setEmaPopoverOpen] = useState(false);
+  const [emaPopoverPos, setEmaPopoverPos] = useState<{ top: number; left: number }>({ top: 160, left: 16 });
+  const [draftEmaPeriod, setDraftEmaPeriod] = useState<string>('9');
   const [allFiltersOpen, setAllFiltersOpen] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
@@ -252,6 +262,8 @@ export default function StockScreenerPanel({
   const [draftValMax, setDraftValMax] = useState<string>('5');
 
   const panelRef = useRef<HTMLDivElement>(null);
+  const emaBtnRef = useRef<HTMLButtonElement>(null);
+  const emaPopoverRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const runScan = useCallback(
@@ -334,11 +346,16 @@ export default function StockScreenerPanel({
   }, [open, refreshRate, loading, runScan]);
 
   useEffect(() => {
+    setDraftEmaPeriod(String(filters.emaPeriod));
+  }, [filters.emaPeriod]);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setPresetMenuOpen(false);
         setViewMenuOpen(false);
         setColumnsMenuOpen(false);
+        setEmaPopoverOpen(false);
         setAllFiltersOpen(false);
       }
     };
@@ -348,6 +365,12 @@ export default function StockScreenerPanel({
         setPresetMenuOpen(false);
         setViewMenuOpen(false);
         setColumnsMenuOpen(false);
+      }
+      if (
+        !emaPopoverRef.current?.contains(target) &&
+        !emaBtnRef.current?.contains(target)
+      ) {
+        setEmaPopoverOpen(false);
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -378,7 +401,10 @@ export default function StockScreenerPanel({
     () => filterScreenerRows(rows, filters, { flaggedSymbols }),
     [rows, filters, flaggedSymbols]
   );
-  const sortedRows = useMemo(() => sortScreenerRows(filteredRows, sort), [filteredRows, sort]);
+  const sortedRows = useMemo(
+    () => sortScreenerRows(filteredRows, sort, { emaPeriod: filters.emaPeriod }),
+    [filteredRows, sort, filters.emaPeriod]
+  );
   const activeFilterCount = useMemo(() => countActiveScreenerFilters(filters), [filters]);
   const allPresets = useMemo(
     () => [...BUILT_IN_SCREENER_PRESETS, ...savedPresets],
@@ -504,9 +530,11 @@ export default function StockScreenerPanel({
   };
 
   const handleExportCsv = () => {
-    const headers = visibleColumns.map(
-      (k) => SCREENER_COLUMNS.find((c) => c.key === k)?.label ?? k
-    );
+    const headers = visibleColumns.map((k) => {
+      if (k === 'ema9') return `EMA (${filters.emaPeriod})`;
+      if (k === 'ema9DiffPct') return `vs EMA ${filters.emaPeriod}`;
+      return SCREENER_COLUMNS.find((c) => c.key === k)?.label ?? k;
+    });
     const escapeCell = (val: unknown) => {
       const s = val === null || val === undefined ? '' : String(val);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -514,7 +542,13 @@ export default function StockScreenerPanel({
     const lines = [
       headers.map(escapeCell).join(','),
       ...sortedRows.map((row) =>
-        visibleColumns.map((k) => escapeCell(row[k])).join(',')
+        visibleColumns
+          .map((k) => {
+            if (k === 'ema9') return escapeCell(resolveRowEma(row, filters.emaPeriod).value);
+            if (k === 'ema9DiffPct') return escapeCell(resolveRowEma(row, filters.emaPeriod).diffPct);
+            return escapeCell(row[k]);
+          })
+          .join(',')
       ),
     ];
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -882,24 +916,36 @@ export default function StockScreenerPanel({
           <span>Flagged</span>
         </button>
 
-        {/* EMA 9 Quick Pill */}
-        <select
-          aria-label="EMA 9 condition"
+        {/* Manual Price vs EMA Condition Pill & Interactive Popover */}
+        <button
+          ref={emaBtnRef}
+          type="button"
+          aria-label="Harga vs EMA condition"
+          aria-haspopup="dialog"
+          aria-expanded={emaPopoverOpen}
           data-testid="screener-ema9-filter"
-          value={filters.ema9Mode}
-          onChange={(e) => updateFilter('ema9Mode', e.target.value as Ema9FilterMode)}
-          className={`h-7 px-2 rounded-md border text-xs font-medium cursor-pointer shrink-0 focus:outline-none ${
+          onClick={() => {
+            if (!emaPopoverOpen && emaBtnRef.current) {
+              const rect = emaBtnRef.current.getBoundingClientRect();
+              const popW = Math.min(320, window.innerWidth - 16);
+              const left = Math.max(8, Math.min(rect.left, window.innerWidth - popW - 8));
+              const top = Math.min(rect.bottom + 6, Math.max(12, window.innerHeight - 310));
+              setEmaPopoverPos({ top, left });
+            }
+            setEmaPopoverOpen((v) => !v);
+            setPresetMenuOpen(false);
+            setViewMenuOpen(false);
+            setColumnsMenuOpen(false);
+          }}
+          className={`h-7 px-2.5 rounded-md border text-xs font-medium flex items-center gap-1.5 shrink-0 cursor-pointer focus:outline-none ${
             filters.ema9Mode !== 'all'
               ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa]'
               : 'bg-slate-100 dark:bg-[#161a24] border-slate-200 dark:border-[#262c3a] text-slate-700 dark:text-[#cbd5e1]'
           }`}
         >
-          {EMA9_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <span>{formatEmaFilterLabel(filters.ema9Mode, filters.emaPeriod)}</span>
+          <ChevronDown className="w-3 h-3 opacity-75" />
+        </button>
 
         {/* Price vs MA / Bollinger Bands Trend Pill (TradingView Price Presets) */}
         <select
@@ -1156,7 +1202,7 @@ export default function StockScreenerPanel({
                     : 'bg-white dark:bg-[#171b26] border-slate-200 dark:border-[#2a3142] text-slate-600 dark:text-[#98a2b3]'
                 }`}
               >
-                EMA 9 Line
+                EMA {filters.emaPeriod} Line
               </button>
             </div>
           )}
@@ -1292,6 +1338,7 @@ export default function StockScreenerPanel({
             activeSymbol={activeSymbol}
             flagMap={flagMap}
             showEma9Overlay={showEma9Overlay}
+            emaPeriod={filters.emaPeriod}
             chartStyle={chartStyle}
             onSelectSymbol={onSelectSymbol}
             onToggleFlag={onToggleFlag}
@@ -1328,7 +1375,13 @@ export default function StockScreenerPanel({
                       }`}
                     >
                       <div className={`flex items-center gap-1 ${alignClass}`}>
-                        <span>{meta.label}</span>
+                        <span>
+                          {colKey === 'ema9'
+                            ? `EMA (${filters.emaPeriod})`
+                            : colKey === 'ema9DiffPct'
+                              ? `vs EMA ${filters.emaPeriod}`
+                              : meta.label}
+                        </span>
                         {isSorted &&
                           (sort.direction === 'asc' ? (
                             <ArrowUp className="w-3 h-3 text-[#2962ff]" />
@@ -1449,28 +1502,35 @@ export default function StockScreenerPanel({
                       }
 
                       if (colKey === 'ema9') {
+                        const emaSnap = resolveRowEma(row, filters.emaPeriod);
                         return (
                           <td key={colKey} className="px-3 py-2 text-right font-mono whitespace-nowrap text-slate-700 dark:text-[#cbd5e1]">
-                            {formatPriceValue(row.ema9, row.symbol)}
+                            {formatPriceValue(emaSnap.value, row.symbol)}
                           </td>
                         );
                       }
 
                       if (colKey === 'ema9DiffPct') {
-                        const above = (row.ema9DiffPct ?? 0) > 0;
+                        const emaSnap = resolveRowEma(row, filters.emaPeriod);
+                        const above = (emaSnap.diffPct ?? 0) > 0;
                         return (
                           <td key={colKey} className="px-3 py-2 text-right font-mono whitespace-nowrap">
-                            {row.ema9DiffPct === null ? (
+                            {emaSnap.diffPct === null ? (
                               <span className="text-slate-400">—</span>
                             ) : (
                               <span className="inline-flex items-center gap-1">
-                                {row.ema9Signal === 'cross_above' && (
+                                {emaSnap.signal === 'cross_above' && (
                                   <span className="px-1 py-0.2 rounded text-[9px] font-sans font-bold uppercase bg-[#089981]/20 text-[#089981] border border-[#089981]/40">
                                     Cross ↑
                                   </span>
                                 )}
+                                {emaSnap.signal === 'cross_below' && (
+                                  <span className="px-1 py-0.2 rounded text-[9px] font-sans font-bold uppercase bg-[#f23645]/15 text-[#f23645] border border-[#f23645]/35">
+                                    Cross ↓
+                                  </span>
+                                )}
                                 <span className={above ? 'text-[#089981] font-semibold' : 'text-[#f23645]'}>
-                                  {formatPct(row.ema9DiffPct)}
+                                  {formatPct(emaSnap.diffPct)}
                                 </span>
                               </span>
                             )}
@@ -2037,6 +2097,202 @@ export default function StockScreenerPanel({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Interactive Harga (>, <, <=, >=) EMA Manual Period Popover */}
+      {emaPopoverOpen && (
+        <div
+          ref={emaPopoverRef}
+          role="dialog"
+          aria-label="Filter Harga vs EMA"
+          data-testid="screener-ema-popover"
+          style={{ top: emaPopoverPos.top, left: emaPopoverPos.left }}
+          className="fixed w-[296px] sm:w-[320px] rounded-xl bg-white dark:bg-[#161a24] border border-slate-200 dark:border-[#2a3142] shadow-2xl p-3 z-[90] space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-900 dark:text-[#f0f3fa]">
+              Kondisi Harga vs EMA
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                commitFilters({ ...filters, ema9Mode: 'all', emaPeriod: 9 }, 'custom');
+                setDraftEmaPeriod('9');
+                setEmaPopoverOpen(false);
+              }}
+              className="text-[11px] text-slate-500 hover:text-slate-900 dark:text-[#8b95a7] dark:hover:text-white cursor-pointer"
+            >
+              Reset
+            </button>
+          </div>
+
+          {/* Expression builder row: Harga [ > | < | <= | >= ] EMA [ manual input ] */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const valid = sanitizeEmaPeriod(Number(draftEmaPeriod) || filters.emaPeriod);
+              const nextMode: Ema9FilterMode =
+                filters.ema9Mode === 'all' ||
+                filters.ema9Mode === 'above_ema9_20' ||
+                filters.ema9Mode === 'golden_stack'
+                  ? 'gt'
+                  : filters.ema9Mode;
+              commitFilters({ ...filters, ema9Mode: nextMode, emaPeriod: valid }, 'custom');
+              setDraftEmaPeriod(String(valid));
+              setEmaPopoverOpen(false);
+            }}
+            className="space-y-2.5"
+          >
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="px-2 h-7 rounded bg-slate-100 dark:bg-[#1e2433] text-xs font-semibold text-slate-800 dark:text-[#e6eaf2] inline-flex items-center">
+                Harga
+              </span>
+
+              <div
+                role="group"
+                aria-label="Operator perbandingan harga"
+                className="flex items-center rounded-md bg-slate-100 dark:bg-[#0d1017] p-0.5 border border-slate-200 dark:border-[#262c3a]"
+              >
+                {EMA_OPERATOR_OPTIONS.map((op) => {
+                  const isActive =
+                    filters.ema9Mode === op.id ||
+                    (op.id === 'gt' && filters.ema9Mode === 'above_ema9') ||
+                    (op.id === 'lt' && filters.ema9Mode === 'below_ema9');
+                  return (
+                    <button
+                      key={op.id}
+                      type="button"
+                      data-testid={`ema-op-${op.id}`}
+                      title={op.label}
+                      onClick={() => {
+                        const valid = sanitizeEmaPeriod(
+                          draftEmaPeriod.trim() ? Number(draftEmaPeriod) : filters.emaPeriod
+                        );
+                        commitFilters(
+                          { ...filters, ema9Mode: op.id, emaPeriod: valid },
+                          'custom'
+                        );
+                      }}
+                      className={`h-6 min-w-[28px] px-1.5 rounded text-xs font-mono font-bold transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-[#2962ff] text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-[#98a2b3] hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {op.symbol}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <span className="text-xs font-semibold text-slate-700 dark:text-[#cbd5e1]">
+                EMA
+              </span>
+
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={500}
+                step={1}
+                aria-label="Periode EMA manual"
+                data-testid="screener-ema-period-input"
+                value={draftEmaPeriod}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setDraftEmaPeriod(raw);
+                  if (raw.trim() === '') return;
+                  const num = Number(raw);
+                  if (Number.isInteger(num) && num >= 1 && num <= 500) {
+                    const nextMode: Ema9FilterMode =
+                      filters.ema9Mode === 'all' ||
+                      filters.ema9Mode === 'above_ema9_20' ||
+                      filters.ema9Mode === 'golden_stack'
+                        ? 'gt'
+                        : filters.ema9Mode;
+                    commitFilters({ ...filters, ema9Mode: nextMode, emaPeriod: num }, 'custom');
+                  }
+                }}
+                className="h-7 w-16 px-2 rounded bg-slate-100 dark:bg-[#0d1017] border border-slate-300 dark:border-[#2a3142] text-base sm:text-xs font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-[#2962ff]"
+              />
+            </div>
+
+            {/* Quick EMA Period Chips */}
+            <div className="flex flex-wrap gap-1">
+              {QUICK_EMA_PERIODS.map((p) => {
+                const selected = filters.emaPeriod === p && filters.ema9Mode !== 'all';
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    data-testid={`ema-quick-period-${p}`}
+                    onClick={() => {
+                      const nextMode: Ema9FilterMode =
+                        filters.ema9Mode === 'all' ||
+                        filters.ema9Mode === 'above_ema9_20' ||
+                        filters.ema9Mode === 'golden_stack'
+                          ? 'gt'
+                          : filters.ema9Mode;
+                      setDraftEmaPeriod(String(p));
+                      commitFilters({ ...filters, ema9Mode: nextMode, emaPeriod: p }, 'custom');
+                    }}
+                    className={`h-6 px-2 rounded text-[11px] font-mono border transition-colors cursor-pointer ${
+                      selected
+                        ? 'bg-[#2962ff]/12 border-[#2962ff]/50 text-[#2962ff] dark:text-[#60a5fa] font-semibold'
+                        : 'bg-slate-50 dark:bg-[#11151e] border-slate-200 dark:border-[#242a38] text-slate-600 dark:text-[#98a2b3] hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    EMA {p}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Cross & Stack Presets */}
+            <div className="pt-2 border-t border-slate-200 dark:border-[#242a38] grid grid-cols-1 gap-1">
+              {(
+                [
+                  { id: 'cross_above_ema9', label: `Cross Up EMA ${sanitizeEmaPeriod(filters.emaPeriod)}` },
+                  { id: 'cross_below_ema9', label: `Cross Down EMA ${sanitizeEmaPeriod(filters.emaPeriod)}` },
+                  { id: 'above_ema9_20', label: 'Harga > EMA 9 > EMA 20' },
+                  { id: 'golden_stack', label: 'Golden Stack (Harga > EMA 9 > 20 > SMA 50)' },
+                ] as const
+              ).map((presetOpt) => {
+                const active = filters.ema9Mode === presetOpt.id;
+                return (
+                  <button
+                    key={presetOpt.id}
+                    type="button"
+                    onClick={() => {
+                      commitFilters({ ...filters, ema9Mode: presetOpt.id }, 'custom');
+                      setEmaPopoverOpen(false);
+                    }}
+                    className={`w-full text-left px-2 py-1 rounded text-xs flex items-center justify-between cursor-pointer ${
+                      active
+                        ? 'bg-[#2962ff]/12 text-[#2962ff] dark:text-[#60a5fa] font-semibold'
+                        : 'text-slate-700 dark:text-[#cbd5e1] hover:bg-slate-100 dark:hover:bg-[#212736]'
+                    }`}
+                  >
+                    <span>{presetOpt.label}</span>
+                    {active && <Check className="w-3.5 h-3.5" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-[#242a38]">
+              <span className="text-[10px] font-mono text-slate-400 dark:text-[#787b86]">
+                {sortedRows.length} cocok
+              </span>
+              <button
+                type="submit"
+                className="h-7 px-3 rounded bg-[#2962ff] hover:bg-[#1e53e5] text-white text-xs font-semibold cursor-pointer"
+              >
+                Terapkan
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </section>

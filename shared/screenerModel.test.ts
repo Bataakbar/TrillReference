@@ -8,9 +8,11 @@ import {
   countActiveScreenerFilters,
   detectCandlePattern,
   filterScreenerRows,
+  formatEmaFilterLabel,
   layoutTreemapRects,
   matchesIndexMembership,
   normalizeScreenerFilters,
+  resolveRowEma,
   sortScreenerRows,
   type ScreenerRow,
 } from './screenerModel';
@@ -294,4 +296,85 @@ test('layoutTreemapRects partitions bounds into non-overlapping proportional til
     assert.ok(r.w > 0 && r.h > 0);
     assert.ok(r.x >= 0 && r.y >= 0);
   }
+});
+
+test('manual EMA period and (>, <, <=, >=) operators evaluate dynamically via closeHistory', () => {
+  const upTech = computeScreenerTechnicals(buildRisingBars(40, 100, 2)); // rising: price > any EMA
+  const flatBars = Array.from({ length: 40 }, (_, i) => ({
+    timestamp: Date.UTC(2025, 0, 1) + i * 86_400_000,
+    open: 100,
+    high: 100,
+    low: 100,
+    close: 100,
+    volume: 1000,
+  }));
+  const flatTech = computeScreenerTechnicals(flatBars); // price === 100 === EMA(21)
+
+  const makeRow = (sym: string, price: number, tech: typeof upTech): ScreenerRow => ({
+    ...tech,
+    symbol: sym,
+    shortName: sym,
+    exchange: 'IDX',
+    country: 'ID',
+    sector: 'Finance',
+    currency: 'IDR',
+    price,
+    change: 0,
+    changePercent: 0,
+    volume: 1_000_000,
+    avgVolume10d: 1_000_000,
+    avgVolume3m: 1_000_000,
+    relVolume: 1,
+    marketCap: 10e12,
+    trailingPE: 12,
+    forwardPE: 11,
+    priceToBook: 1.5,
+    epsTTM: 10,
+    epsForward: 12,
+    bookValue: 50,
+    divYieldPct: 2,
+    divRate: 10,
+    beta: 1,
+    analystRating: 'Buy',
+    fiftyTwoWeekLow: 80,
+    fiftyTwoWeekHigh: 200,
+    fiftyTwoWeekRangePos: 50,
+  });
+
+  const upRow = makeRow('UP.JK', 178, upTech);
+  const eqRow = makeRow('EQ.JK', 100, flatTech);
+  const downTech = computeScreenerTechnicals(buildRisingBars(40, 200, -2)); // falling: price < EMA(21)
+  const downRow = makeRow('DOWN.JK', 122, downTech);
+  const rows = [upRow, eqRow, downRow];
+
+  // Dynamic EMA(21) calculation from closeHistory
+  assert.ok(resolveRowEma(upRow, 21).value !== null);
+  assert.equal(resolveRowEma(eqRow, 21).value, 100);
+
+  // Operators against custom EMA 21
+  assert.deepEqual(
+    filterScreenerRows(rows, { ...DEFAULT_SCREENER_FILTERS, ema9Mode: 'gt', emaPeriod: 21 }).map((r) => r.symbol),
+    ['UP.JK']
+  );
+  assert.deepEqual(
+    filterScreenerRows(rows, { ...DEFAULT_SCREENER_FILTERS, ema9Mode: 'gte', emaPeriod: 21 }).map((r) => r.symbol),
+    ['UP.JK', 'EQ.JK']
+  );
+  assert.deepEqual(
+    filterScreenerRows(rows, { ...DEFAULT_SCREENER_FILTERS, ema9Mode: 'lt', emaPeriod: 21 }).map((r) => r.symbol),
+    ['DOWN.JK']
+  );
+  assert.deepEqual(
+    filterScreenerRows(rows, { ...DEFAULT_SCREENER_FILTERS, ema9Mode: 'lte', emaPeriod: 21 }).map((r) => r.symbol),
+    ['EQ.JK', 'DOWN.JK']
+  );
+
+  // Label formatting & custom EMA sort
+  assert.equal(formatEmaFilterLabel('lte', 21), 'Harga <= EMA 21');
+  assert.equal(formatEmaFilterLabel('gte', 50), 'Harga >= EMA 50');
+  const sortedByEma21Diff = sortScreenerRows(rows, { key: 'ema9DiffPct', direction: 'desc' }, { emaPeriod: 21 });
+  assert.deepEqual(
+    sortedByEma21Diff.map((r) => r.symbol),
+    ['UP.JK', 'EQ.JK', 'DOWN.JK']
+  );
 });
