@@ -13,13 +13,13 @@ import {
   computeQuoteSummary,
   type OHLCVBar,
   type RawYahooQuote,
-} from '../shared/timeframes';
+} from '../shared/timeframes.js';
 import {
   queryInstrumentCatalog,
   type CatalogInstrument,
   type SearchCategoryFilter,
   type StockTypeFilter,
-} from '../shared/instrumentCatalog';
+} from '../shared/instrumentCatalog.js';
 
 // Initialize yahoo-finance2 v3/v4 instance safely
 const yahooFinance = new YahooFinance({
