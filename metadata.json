@@ -1,0 +1,6 @@
+{
+  "name": "Meridian Chart",
+  "description": "TradingView-grade financial charting workspace powered by Yahoo Finance with complete timeframes, resampled candles, technical indicators, and 27 interactive drawing tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
