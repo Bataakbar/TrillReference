@@ -40,11 +40,9 @@ import {
   saveChartSettings,
   type ChartDisplaySettings,
 } from '../utils/chartStyles';
-import { subdivideXAxisGridTicks } from '../utils/chartGrid';
 import {
-  TV_XAXIS_NAME,
+  applyChartAxes,
   registerChartAxes,
-  resolveCandleYAxisName,
 } from '../utils/idxPriceAxis';
 import {
   DEFAULT_BAR_SPACE,
@@ -855,11 +853,7 @@ export default function TradingViewWorkspace({
     });
     if (!chart) return;
     chartRef.current = chart;
-    chart.overrideXAxis({
-      name: TV_XAXIS_NAME,
-      createTicks: ({ defaultTicks, bounding }) =>
-        subdivideXAxisGridTicks(defaultTicks, bounding.width),
-    });
+    applyChartAxes(chart, activeSymbolRef.current, yAxisScale);
 
     // Mount all saved / default flexible indicators
     for (const inst of indicatorsRef.current) {
@@ -1207,20 +1201,11 @@ export default function TradingViewWorkspace({
     }
   }, [theme, chartType, isCompactViewport, chartSettings]);
 
-  // Apply Y-axis scale mode (Price / Log), IDX tick-size formatting, and TradingView grid columns
+  // Apply Y-axis scale mode (Price / Log), IDX tick-size formatting, and dynamic TradingView X/Y grid lines
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    registerChartAxes();
-    chart.overrideXAxis({
-      name: TV_XAXIS_NAME,
-      createTicks: ({ defaultTicks, bounding }) =>
-        subdivideXAxisGridTicks(defaultTicks, bounding.width),
-    });
-    chart.overrideYAxis({
-      paneId: 'candle_pane',
-      name: resolveCandleYAxisName(symbol, yAxisScale),
-    });
+    applyChartAxes(chart, symbol, yAxisScale);
     chart.resize();
   }, [symbol, timeframe, reloadTick, yAxisScale, theme, chartType, chartSettings]);
 
