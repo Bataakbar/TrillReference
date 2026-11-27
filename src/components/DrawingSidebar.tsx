@@ -52,6 +52,12 @@ export default function DrawingSidebar({
   const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    if (!mobileOpen) {
+      setOpenGroupId(null);
+    }
+  }, [mobileOpen]);
+
+  useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
         setOpenGroupId(null);
@@ -85,9 +91,11 @@ export default function DrawingSidebar({
     <aside
       ref={sidebarRef}
       aria-label="Drawing tools toolbar"
-      className={`${
-        mobileOpen ? 'flex' : 'hidden'
-      } md:flex w-12 shrink-0 bg-white dark:bg-[#000000] border-r border-slate-200 dark:border-[#1f2430] flex-col items-center py-2 gap-1 select-none z-25`}
+      className={`flex flex-col items-center w-12 shrink-0 bg-white dark:bg-[#000000] border-r border-slate-200 dark:border-[#1f2430] py-2 gap-1 max-md:py-1.5 max-md:gap-0.5 select-none z-40 md:z-25 md:static md:translate-x-0 md:opacity-100 md:pointer-events-auto max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:transition-[transform,opacity] max-md:duration-300 max-md:ease-[cubic-bezier(0.22,1,0.36,1)] max-md:will-change-transform ${
+        mobileOpen
+          ? 'max-md:translate-x-0 max-md:opacity-100 max-md:pointer-events-auto max-md:shadow-2xl'
+          : 'max-md:-translate-x-full max-md:opacity-0 max-md:pointer-events-none'
+      }`}
     >
       {/* Crosshair / Select Cursor */}
       <button

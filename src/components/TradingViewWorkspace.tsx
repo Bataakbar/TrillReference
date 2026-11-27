@@ -2432,13 +2432,15 @@ export default function TradingViewWorkspace({
               : 'text-slate-500 dark:text-[#8b95a7]'
           }`}
         >
-          <Pencil className="w-4 h-4" />
+          <span className="relative inline-flex items-center justify-center">
+            <Pencil className="w-4 h-4" />
+            {drawingCount > 0 && (
+              <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-[14px] px-1 rounded-full bg-[#2962ff] text-white text-[9px] font-mono leading-none flex items-center justify-center ring-1 ring-white dark:ring-[#090b10]">
+                {drawingCount}
+              </span>
+            )}
+          </span>
           <span>Draw</span>
-          {drawingCount > 0 && (
-            <span className="absolute top-1 right-4 min-w-[14px] h-[14px] px-1 rounded-full bg-[#2962ff] text-white text-[9px] font-mono flex items-center justify-center">
-              {drawingCount}
-            </span>
-          )}
         </button>
 
         <button
