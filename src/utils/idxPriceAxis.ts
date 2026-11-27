@@ -1,5 +1,5 @@
 import { registerXAxis, registerYAxis, type Chart } from 'klinecharts';
-import { isIdxSymbol } from '../../shared/timeframes';
+import { isIdxSymbol, snapToIdxTick } from '../../shared/timeframes';
 import type { YAxisScaleType } from '../types/chart';
 import {
   buildTradingViewXTicks,
@@ -67,6 +67,7 @@ export function registerChartAxes(): void {
 
   registerYAxis({
     name: 'idx_normal',
+    displayValueToText: (value: number) => String(snapToIdxTick(value)),
     createTicks: ({ range, bounding, defaultTicks }) =>
       buildTradingViewYTicks({
         defaultTicks,
@@ -102,6 +103,7 @@ export function registerChartAxes(): void {
         displayRange: range,
       };
     },
+    displayValueToText: (value: number) => String(snapToIdxTick(value)),
     createTicks: ({ range, bounding, defaultTicks }) =>
       buildTradingViewYTicks({
         defaultTicks,

@@ -7,6 +7,12 @@ import {
   computeParallelChannelGeometry,
   resolveBarIndexFromPoint,
 } from './parallelChannelMath';
+import {
+  formatOverlayPriceForSymbol,
+  getActiveDrawingSymbol,
+  pickContrastTextColor,
+  snapOverlayPriceForSymbol,
+} from './overlayPriceSnap';
 
 export function buildKLineOverlayStyles(style: DrawingOverlayStyle): DeepPartial<OverlayStyle> {
   const dash = lineDashToKLine(style.lineStyle);
@@ -50,8 +56,6 @@ function readCustomOverlayLineStyle(
   const dashedValue = Array.isArray(line?.dashedValue) ? line.dashedValue : [];
   return { color, size, style, dashedValue };
 }
-
-let registered = false;
 
 export const DRAWING_GROUPS: readonly DrawingToolGroup[] = [
   {
@@ -234,9 +238,6 @@ function pointToSegmentDistSq(
 }
 
 export function registerCustomOverlays(): void {
-  if (registered) return;
-  registered = true;
-
   // Custom smooth freehand stroke figure with generous hit-testing
   registerFigure<FreehandStrokeAttrs>({
     name: 'freehandStroke',
@@ -723,42 +724,299 @@ export function registerCustomOverlays(): void {
     },
   });
 
+function resolveOverlaySymbolAndCandleFlag(
+  chart: { getSymbol: () => { ticker?: string; pricePrecision?: number } | null },
+  overlay: Overlay<unknown>,
+  yAxis: { isInCandle?: () => boolean } | null | undefined
+): { symbol: string; precision: number; isCandlePane: boolean } {
+  const symInfo = chart.getSymbol();
+  const symbol = symInfo?.ticker ?? getActiveDrawingSymbol();
+  const isCandlePane = yAxis?.isInCandle?.() ?? overlay.paneId === 'candle_pane';
+  const precision = isCandlePane ? symInfo?.pricePrecision ?? 2 : 2;
+  return { symbol, precision, isCandlePane };
+}
+
+function resolveSnappedY(
+  yAxis: { convertToPixel: (val: number) => number } | null | undefined,
+  fallbackY: number,
+  symbol: string,
+  rawValue: number | undefined,
+  isCandlePane: boolean
+): { value: number; y: number } {
+  const raw = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : 0;
+  const value = snapOverlayPriceForSymbol(symbol, raw, isCandlePane);
+  const y =
+    yAxis && typeof rawValue === 'number' && Number.isFinite(rawValue)
+      ? yAxis.convertToPixel(value)
+      : fallbackY;
+  return { value, y: Number.isFinite(y) ? y : fallbackY };
+}
+
+function buildOverlayYAxisPricePill(options: {
+  boundingWidth: number;
+  isFromZero: boolean;
+  y: number;
+  text: string;
+  color: string;
+}) {
+  const { boundingWidth, isFromZero, y, text, color } = options;
+  return {
+    type: 'text' as const,
+    ignoreEvent: true,
+    attrs: {
+      x: isFromZero ? 0 : boundingWidth,
+      y,
+      text,
+      align: (isFromZero ? 'left' : 'right') as 'left' | 'right',
+      baseline: 'middle' as const,
+    },
+    styles: {
+      color: pickContrastTextColor(color),
+      backgroundColor: color,
+      paddingLeft: 5,
+      paddingRight: 5,
+      paddingTop: 3,
+      paddingBottom: 3,
+      borderRadius: 2,
+      size: 11,
+      family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
+    },
+  };
+}
+
+function createSnappedYAxisFigures(params: {
+  chart: { getSymbol: () => { ticker?: string; pricePrecision?: number } | null };
+  coordinates: ReadonlyArray<{ x: number; y: number }>;
+  overlay: Overlay<unknown>;
+  bounding: { width: number };
+  yAxis: { convertToPixel: (val: number) => number; isInCandle?: () => boolean; isFromZero?: () => boolean } | null | undefined;
+}) {
+  const { chart, coordinates, overlay, bounding, yAxis } = params;
+  if (coordinates.length < 1) return [];
+  const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+  const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
+    chart,
+    overlay,
+    yAxis
+  );
+  const { value, y } = resolveSnappedY(
+    yAxis,
+    coordinates[0].y,
+    symbol,
+    overlay.points[0]?.value,
+    isCandlePane
+  );
+  return [
+    buildOverlayYAxisPricePill({
+      boundingWidth: bounding.width,
+      isFromZero: yAxis?.isFromZero?.() ?? true,
+      y,
+      text: formatOverlayPriceForSymbol(symbol, value, precision, isCandlePane),
+      color: ls.color,
+    }),
+  ];
+}
+
+function snapPrimaryPointValue(
+  points: Array<{ value?: number }>,
+  performPoint: { value?: number },
+  syncSecondPoint = false
+): void {
+  if (points[0] && typeof performPoint.value === 'number') {
+    const snapped = snapOverlayPriceForSymbol(getActiveDrawingSymbol(), performPoint.value);
+    points[0].value = snapped;
+    if (syncSecondPoint && points[1]) {
+      points[1].value = snapped;
+    }
+  }
+}
+
   // 0c. TradingView Crossline (Infinite Horizontal + Vertical Cross anchored at 1 point)
   registerOverlay({
     name: 'crossLine',
     totalStep: 2,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay, bounding }) => {
-      if (coordinates.length === 1) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
-        const c = coordinates[0];
-        return [
-          {
-            type: 'line',
-            attrs: {
-              coordinates: [
-                { x: 0, y: c.y },
-                { x: bounding.width, y: c.y },
-              ],
-            },
-            styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
-          },
-          {
-            type: 'line',
-            attrs: {
-              coordinates: [
-                { x: c.x, y: 0 },
-                { x: c.x, y: bounding.height },
-              ],
-            },
-            styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
-          },
-        ];
-      }
-      return [];
+    needDefaultYAxisFigure: false,
+    performEventMoveForDrawing: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    performEventPressedMove: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
+      if (coordinates.length !== 1) return [];
+      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const c = coordinates[0];
+      const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
+      const { y } = resolveSnappedY(yAxis, c.y, symbol, overlay.points[0]?.value, isCandlePane);
+      const styles = {
+        color: ls.color,
+        size: ls.size,
+        style: ls.style,
+        dashedValue: ls.dashedValue,
+      };
+      return [
+        { type: 'line', attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] }, styles },
+        { type: 'line', attrs: { coordinates: [{ x: c.x, y: 0 }, { x: c.x, y: bounding.height }] }, styles },
+      ];
     },
+    createYAxisFigures: createSnappedYAxisFigures,
+  });
+
+  // 0d. TradingView Horizontal Ray (1-click anchor extending right + BEI-snapped Y-axis pill)
+  registerOverlay({
+    name: 'horizontalRayLine',
+    totalStep: 2,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    performEventMoveForDrawing: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    performEventPressedMove: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint, true),
+    createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
+      if (coordinates.length < 1) return [];
+      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const c0 = coordinates[0];
+      const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
+      const { y } = resolveSnappedY(yAxis, c0.y, symbol, overlay.points[0]?.value, isCandlePane);
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: [{ x: c0.x, y }, { x: bounding.width, y }] },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+      ];
+    },
+    createYAxisFigures: createSnappedYAxisFigures,
+  });
+
+  // 0e. TradingView-snapped Price Line (horizontal ray + on-chart & Y-axis BEI-snapped price badge)
+  registerOverlay({
+    name: 'priceLine',
+    totalStep: 2,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    performEventMoveForDrawing: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    performEventPressedMove: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
+      if (coordinates.length < 1) return [];
+      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const c0 = coordinates[0];
+      const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
+        chart,
+        overlay,
+        yAxis
+      );
+      const { value, y } = resolveSnappedY(
+        yAxis,
+        c0.y,
+        symbol,
+        overlay.points[0]?.value,
+        isCandlePane
+      );
+      const text = formatOverlayPriceForSymbol(symbol, value, precision, isCandlePane);
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: [{ x: c0.x, y }, { x: bounding.width, y }] },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+        {
+          type: 'text',
+          ignoreEvent: true,
+          attrs: { x: c0.x + 6, y: y - 4, text, baseline: 'bottom' },
+          styles: {
+            color: pickContrastTextColor(ls.color),
+            backgroundColor: ls.color,
+            paddingLeft: 5,
+            paddingRight: 5,
+            paddingTop: 2,
+            paddingBottom: 2,
+            borderRadius: 2,
+            size: 11,
+            family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
+          },
+        },
+      ];
+    },
+    createYAxisFigures: createSnappedYAxisFigures,
+  });
+
+  // 0f. Horizontal Line (infinite across chart, snapped to IDX fraksi + Y-axis pill)
+  registerOverlay({
+    name: 'horizontalStraightLine',
+    totalStep: 2,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    performEventMoveForDrawing: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    performEventPressedMove: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint),
+    createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
+      if (coordinates.length < 1) return [];
+      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
+      const { y } = resolveSnappedY(
+        yAxis,
+        coordinates[0].y,
+        symbol,
+        overlay.points[0]?.value,
+        isCandlePane
+      );
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: [{ x: 0, y }, { x: bounding.width, y }] },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+      ];
+    },
+    createYAxisFigures: createSnappedYAxisFigures,
+  });
+
+  // 0g. Horizontal Segment (2-click level segment, snapped to IDX fraksi)
+  registerOverlay({
+    name: 'horizontalSegment',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    performEventMoveForDrawing: ({ currentStep, points, performPoint }) => {
+      if (typeof performPoint.value !== 'number') return;
+      const snapped = snapOverlayPriceForSymbol(getActiveDrawingSymbol(), performPoint.value);
+      if (currentStep === 2 && points[0]) {
+        points[0].value = snapped;
+      } else if (currentStep >= 3 && points[0] && points[1]) {
+        points[0].value = snapped;
+        points[1].value = snapped;
+      }
+    },
+    performEventPressedMove: ({ points, performPoint }) =>
+      snapPrimaryPointValue(points, performPoint, true),
+    createPointFigures: ({ chart, coordinates, overlay, yAxis }) => {
+      if (coordinates.length < 2) return [];
+      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
+      const { y } = resolveSnappedY(
+        yAxis,
+        coordinates[0].y,
+        symbol,
+        overlay.points[0]?.value,
+        isCandlePane
+      );
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: [{ x: coordinates[0].x, y }, { x: coordinates[1].x, y }] },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+      ];
+    },
+    createYAxisFigures: createSnappedYAxisFigures,
   });
 
   // 1. Rectangle (Supply / Demand Zone)

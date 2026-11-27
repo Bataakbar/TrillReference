@@ -28,6 +28,10 @@ import {
   type ChartImageExtendData,
 } from '../overlays/customOverlays';
 import {
+  setActiveDrawingSymbol,
+  snapOverlayPointsForSymbol,
+} from '../overlays/overlayPriceSnap';
+import {
   buildKLineIndicatorConfig,
   createIndicatorInstance,
   registerCustomIndicators,
@@ -740,6 +744,13 @@ export default function TradingViewWorkspace({
           });
           return;
         }
+        const isCandlePane = !event.overlay.paneId || event.overlay.paneId === 'candle_pane';
+        const snappedPts = snapOverlayPointsForSymbol(
+          activeSymbolRef.current,
+          event.overlay.points ?? [],
+          isCandlePane
+        );
+        chartRef.current?.overrideOverlay({ id: event.overlay.id, points: snappedPts });
         persistCurrentOverlays();
         syncSelectedOverlay(event.overlay.id);
       },
@@ -783,7 +794,16 @@ export default function TradingViewWorkspace({
         setEditingCallout((curr) => (curr?.id === event?.overlay?.id ? null : curr));
         setEditingImage((curr) => (curr?.id === event?.overlay?.id ? null : curr));
       },
-      onPressedMoveEnd: () => {
+      onPressedMoveEnd: (event: OverlayEvent<unknown>) => {
+        if (event?.overlay?.id && Array.isArray(event.overlay.points)) {
+          const isCandlePane = !event.overlay.paneId || event.overlay.paneId === 'candle_pane';
+          const snappedPts = snapOverlayPointsForSymbol(
+            activeSymbolRef.current,
+            event.overlay.points,
+            isCandlePane
+          );
+          chartRef.current?.overrideOverlay({ id: event.overlay.id, points: snappedPts });
+        }
         persistCurrentOverlays();
       },
       onRightClick: (event: OverlayEvent<unknown>) => {
@@ -813,9 +833,10 @@ export default function TradingViewWorkspace({
       const restoredIds: string[] = [];
 
       for (const item of saved) {
+        const snappedPoints = snapOverlayPointsForSymbol(sym, item.points, true);
         const id = chart.createOverlay({
           name: item.name,
-          points: item.points,
+          points: snappedPoints,
           extendData: item.extendData,
           ...(item.style ? { styles: buildKLineOverlayStyles(item.style) } : {}),
           mode: magnetModeRef.current,
@@ -838,6 +859,7 @@ export default function TradingViewWorkspace({
     const el = canvasContainerRef.current;
     if (!el) return;
 
+    setActiveDrawingSymbol(activeSymbolRef.current);
     registerCustomOverlays();
     registerCustomIndicators();
     registerChartAxes();
@@ -1203,6 +1225,7 @@ export default function TradingViewWorkspace({
 
   // Apply Y-axis scale mode (Price / Log), IDX tick-size formatting, and dynamic TradingView X/Y grid lines
   useEffect(() => {
+    setActiveDrawingSymbol(symbol);
     const chart = chartRef.current;
     if (!chart) return;
     applyChartAxes(chart, symbol, yAxisScale);
