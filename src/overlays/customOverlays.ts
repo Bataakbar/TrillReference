@@ -749,6 +749,22 @@ function resolveSnappedY(
   return { value, y: Number.isFinite(y) ? y : fallbackY };
 }
 
+function isNearWhiteHex(hex: string): boolean {
+  const clean = hex.replace('#', '').trim();
+  const full =
+    clean.length === 3
+      ? clean
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : clean;
+  if (full.length !== 6) return false;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b) && r >= 240 && g >= 240 && b >= 240;
+}
+
 function buildOverlayYAxisPricePill(options: {
   boundingWidth: number;
   isFromZero: boolean;
@@ -761,7 +777,9 @@ function buildOverlayYAxisPricePill(options: {
     type: 'text' as const,
     ignoreEvent: true,
     attrs: {
-      x: isFromZero ? 0 : boundingWidth,
+      // Offset 2px past the 1px Y-axis border line so the pill never overlaps or erases the vertical axis/grid border,
+      // and align text at 2 + 6 = 8px to match KLineChart's default tickText x (1px axis + 3px tick + 4px margin).
+      x: isFromZero ? 2 : boundingWidth - 2,
       y,
       text,
       align: (isFromZero ? 'left' : 'right') as 'left' | 'right',
@@ -770,8 +788,9 @@ function buildOverlayYAxisPricePill(options: {
     styles: {
       color: pickContrastTextColor(color),
       backgroundColor: color,
-      paddingLeft: 5,
-      paddingRight: 5,
+      ...(isNearWhiteHex(color) ? { borderColor: '#cbd5e1', borderSize: 1 } : {}),
+      paddingLeft: 6,
+      paddingRight: 6,
       paddingTop: 3,
       paddingBottom: 3,
       borderRadius: 2,
