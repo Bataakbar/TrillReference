@@ -101,32 +101,6 @@ export function DrawingToolIcon({ toolKey, className = 'w-5 h-5' }: DrawingToolI
         </svg>
       );
 
-    case 'verticalStraightLine': // Vertical line
-      return (
-        <svg {...common}>
-          <line x1="12" y1="2.5" x2="12" y2="10" />
-          <line x1="12" y1="14" x2="12" y2="21.5" />
-          <circle cx="12" cy="12" r="2" />
-        </svg>
-      );
-
-    case 'verticalRayLine': // Vertical ray
-      return (
-        <svg {...common}>
-          <line x1="12" y1="2.5" x2="12" y2="16.5" />
-          <circle cx="12" cy="18.5" r="2" />
-        </svg>
-      );
-
-    case 'verticalSegment': // Vertical segment
-      return (
-        <svg {...common}>
-          <line x1="12" y1="7.5" x2="12" y2="16.5" />
-          <circle cx="12" cy="5.5" r="2" />
-          <circle cx="12" cy="18.5" r="2" />
-        </svg>
-      );
-
     case 'crossLine': // Crossline
       return (
         <svg {...common}>
