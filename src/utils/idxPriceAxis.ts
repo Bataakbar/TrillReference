@@ -1,40 +1,58 @@
-import { registerYAxis } from 'klinecharts';
-import { deduplicateIdxAxisTicks, isIdxSymbol, snapToIdxTick } from '../../shared/timeframes';
-import type { YAxisScaleType } from '../types/chart';
+import { registerYAxis, type AxisRange } from 'klinecharts';
+import { deduplicateIdxAxisTicks, snapToIdxTick } from '../../shared/timeframes';
+import {
+  clampYAxisZoomRange,
+  logarithmToValue,
+  resolveCandleYAxisName,
+  valueToLogarithm,
+} from './yAxisRangeClamp';
 
-let idxYAxesRegistered = false;
+export { clampYAxisZoomRange, resolveCandleYAxisName };
 
-function valueToLogarithm(value: number): number {
-  return value < 0 ? -Math.log10(1 - value) : Math.log10(1 + value);
+function findBaseSetRange(
+  instance: object,
+  ownSetRange: unknown
+): ((range: AxisRange) => void) | null {
+  let proto = Object.getPrototypeOf(instance);
+  while (proto) {
+    if (typeof proto.setRange === 'function' && proto.setRange !== ownSetRange) {
+      return proto.setRange as (range: AxisRange) => void;
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+  return null;
 }
 
-function logarithmToValue(value: number): number {
-  return value < 0 ? 1 - Math.pow(10, -value) : Math.pow(10, value) - 1;
+function createClampedSetRange(options: { isIdx: boolean; isLog: boolean }) {
+  const clampedSetRange = function (
+    this: { _autoCalcTickFlag?: boolean; _range?: AxisRange },
+    range: AxisRange
+  ) {
+    const nextRange = clampYAxisZoomRange(range, options);
+    const baseSetRange = findBaseSetRange(this, clampedSetRange);
+    if (baseSetRange) {
+      baseSetRange.call(this, nextRange);
+    } else {
+      this._autoCalcTickFlag = false;
+      this._range = nextRange;
+    }
+  };
+  return clampedSetRange;
 }
 
 /**
- * Registers IDX (BEI) tick-size ("fraksi harga") Y-axis templates on KLineChart v10
- * so the Y-axis crosshair badge, last price tag, and tick labels snap cleanly to valid
- * IDX tick multiples (1, 2, 5, 10, 25) while keeping the dashed crosshair line smooth.
+ * Registers IDX (BEI) tick-size ("fraksi harga") Y-axis templates and guarded
+ * Y-axis zoom templates on KLineChart v10 so continuous Y-axis upward dragging
+ * preserves readable ticks and horizontal grid lines across all markets.
  */
 export function registerIdxYAxes(): void {
-  if (idxYAxesRegistered) return;
-  idxYAxesRegistered = true;
-
-  registerYAxis({
-    name: 'idx_normal',
-    displayValueToText: (value: number) => String(snapToIdxTick(value)),
-    createTicks: ({ defaultTicks }) => deduplicateIdxAxisTicks(defaultTicks),
-  });
-
-  registerYAxis({
-    name: 'idx_logarithm',
+  const logScaleHelpers = {
     minSpan: (precision: number) => 0.05 * Math.pow(10, -precision),
     valueToRealValue: (value: number) => valueToLogarithm(value),
     realValueToDisplayValue: (value: number) => logarithmToValue(value),
     displayValueToRealValue: (value: number) => valueToLogarithm(value),
     realValueToValue: (value: number) => logarithmToValue(value),
-    createRange: ({ defaultRange }) => {
+    createRange: ({ defaultRange }: { defaultRange: AxisRange }) => {
       const { from, to, range } = defaultRange;
       const realFrom = valueToLogarithm(from);
       const realTo = valueToLogarithm(to);
@@ -51,14 +69,31 @@ export function registerIdxYAxes(): void {
         displayRange: range,
       };
     },
+  };
+
+  registerYAxis({
+    name: 'idx_normal',
     displayValueToText: (value: number) => String(snapToIdxTick(value)),
     createTicks: ({ defaultTicks }) => deduplicateIdxAxisTicks(defaultTicks),
-  });
-}
+    setRange: createClampedSetRange({ isIdx: true, isLog: false }),
+  } as Parameters<typeof registerYAxis>[0]);
 
-export function resolveCandleYAxisName(symbol: string, scale: YAxisScaleType): string {
-  if (isIdxSymbol(symbol)) {
-    return scale === 'logarithm' ? 'idx_logarithm' : 'idx_normal';
-  }
-  return scale;
+  registerYAxis({
+    name: 'idx_logarithm',
+    ...logScaleHelpers,
+    displayValueToText: (value: number) => String(snapToIdxTick(value)),
+    createTicks: ({ defaultTicks }) => deduplicateIdxAxisTicks(defaultTicks),
+    setRange: createClampedSetRange({ isIdx: true, isLog: true }),
+  } as Parameters<typeof registerYAxis>[0]);
+
+  registerYAxis({
+    name: 'price_normal',
+    setRange: createClampedSetRange({ isIdx: false, isLog: false }),
+  } as Parameters<typeof registerYAxis>[0]);
+
+  registerYAxis({
+    name: 'price_logarithm',
+    ...logScaleHelpers,
+    setRange: createClampedSetRange({ isIdx: false, isLog: true }),
+  } as Parameters<typeof registerYAxis>[0]);
 }

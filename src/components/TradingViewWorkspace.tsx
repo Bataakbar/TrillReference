@@ -1225,6 +1225,7 @@ export default function TradingViewWorkspace({
   // Apply Y-axis scale mode (Price / Log) & IDX tick-size formatting via KLineChart v10 overrideYAxis
   useEffect(() => {
     setActiveDrawingSymbol(symbol);
+    registerIdxYAxes();
     chartRef.current?.overrideYAxis({
       paneId: 'candle_pane',
       name: resolveCandleYAxisName(symbol, yAxisScale),
