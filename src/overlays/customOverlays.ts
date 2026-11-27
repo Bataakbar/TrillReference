@@ -8,9 +8,14 @@ import {
   resolveBarIndexFromPoint,
 } from './parallelChannelMath';
 import {
+  buildTradingViewYAxisPill,
+  detectChartThemeFromStyles,
   formatOverlayPriceForSymbol,
   getActiveDrawingSymbol,
+  isLightColorHex,
   pickContrastTextColor,
+  resolveNonOverlappingYPositions,
+  resolveThemeAwareOverlayColor,
   snapOverlayPriceForSymbol,
 } from './overlayPriceSnap';
 
@@ -46,11 +51,13 @@ export function buildKLineOverlayStyles(style: DrawingOverlayStyle): DeepPartial
 
 function readCustomOverlayLineStyle(
   overlay: Overlay<unknown>,
-  fallbackColor = '#ffffff',
+  chart?: { getStyles?: () => unknown } | null,
   fallbackSize = 1.5
 ): { color: string; size: number; style: 'solid' | 'dashed'; dashedValue: number[] } {
+  const theme = detectChartThemeFromStyles(chart?.getStyles?.());
   const line = overlay.styles?.line;
-  const color = typeof line?.color === 'string' ? line.color : fallbackColor;
+  const rawColor = typeof line?.color === 'string' ? line.color : undefined;
+  const color = resolveThemeAwareOverlayColor(rawColor, theme);
   const size = typeof line?.size === 'number' && Number.isFinite(line.size) ? line.size : fallbackSize;
   const style = line?.style === 'dashed' ? 'dashed' : 'solid';
   const dashedValue = Array.isArray(line?.dashedValue) ? line.dashedValue : [];
@@ -343,7 +350,7 @@ export function registerCustomOverlays(): void {
       totalStep: 4,
       needDefaultPointFigure: true,
       needDefaultXAxisFigure: true,
-      needDefaultYAxisFigure: true,
+      needDefaultYAxisFigure: false,
       performEventMoveForDrawing: ({ currentStep, points, performPoint }) => {
         if (currentStep === 3 && points.length >= 2) {
           points[2] = computeAlignedThirdPoint(points[0], points[1], performPoint);
@@ -354,8 +361,8 @@ export function registerCustomOverlays(): void {
           points[2] = computeAlignedThirdPoint(points[0], points[1], performPoint);
         }
       },
-      createPointFigures: ({ overlay, coordinates, bounding }) => {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      createPointFigures: ({ chart, overlay, coordinates, bounding }) => {
+        const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
         if (coordinates.length === 2) {
           return [
             {
@@ -418,7 +425,7 @@ export function registerCustomOverlays(): void {
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
+    needDefaultYAxisFigure: false,
     performEventPressedMove: ({ points, performPointIndex, performPoint }) => {
       // Keep timestamp synchronized when dragging an anchor handle horizontally
       if (points[performPointIndex]) {
@@ -505,7 +512,7 @@ export function registerCustomOverlays(): void {
       const pLowerStart = { x: xStart, y: yLowerStart };
       const pLowerEnd = { x: xEnd, y: yLowerEnd };
 
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       // Keep Pearson r badge readable inside the candle pane viewport
       const labelX = Math.max(8, Math.min(bounding.width - 76, xStart + 6));
       const labelY = Math.max(16, Math.min(bounding.height - 16, yLowerStart + 14));
@@ -587,10 +594,10 @@ export function registerCustomOverlays(): void {
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length === 2 && overlay.points.length >= 2) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+        const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
         const [c1, c2] = coordinates;
         const [p1, p2] = overlay.points;
         const v1 = p1.value ?? 0;
@@ -643,10 +650,10 @@ export function registerCustomOverlays(): void {
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length === 2) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+        const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
         const [c1, c2] = coordinates;
         const dx = c2.x - c1.x;
         const dy = c2.y - c1.y;
@@ -749,67 +756,19 @@ function resolveSnappedY(
   return { value, y: Number.isFinite(y) ? y : fallbackY };
 }
 
-function isNearWhiteHex(hex: string): boolean {
-  const clean = hex.replace('#', '').trim();
-  const full =
-    clean.length === 3
-      ? clean
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : clean;
-  if (full.length !== 6) return false;
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b) && r >= 240 && g >= 240 && b >= 240;
-}
-
-function buildOverlayYAxisPricePill(options: {
-  boundingWidth: number;
-  isFromZero: boolean;
-  y: number;
-  text: string;
-  color: string;
-}) {
-  const { boundingWidth, isFromZero, y, text, color } = options;
-  return {
-    type: 'text' as const,
-    ignoreEvent: true,
-    attrs: {
-      // Offset 2px past the 1px Y-axis border line so the pill never overlaps or erases the vertical axis/grid border,
-      // and align text at 2 + 6 = 8px to match KLineChart's default tickText x (1px axis + 3px tick + 4px margin).
-      x: isFromZero ? 2 : boundingWidth - 2,
-      y,
-      text,
-      align: (isFromZero ? 'left' : 'right') as 'left' | 'right',
-      baseline: 'middle' as const,
-    },
-    styles: {
-      color: pickContrastTextColor(color),
-      backgroundColor: color,
-      ...(isNearWhiteHex(color) ? { borderColor: '#cbd5e1', borderSize: 1 } : {}),
-      paddingLeft: 6,
-      paddingRight: 6,
-      paddingTop: 3,
-      paddingBottom: 3,
-      borderRadius: 2,
-      size: 11,
-      family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
-    },
-  };
-}
-
 function createSnappedYAxisFigures(params: {
-  chart: { getSymbol: () => { ticker?: string; pricePrecision?: number } | null };
+  chart: {
+    getSymbol: () => { ticker?: string; pricePrecision?: number } | null;
+    getStyles?: () => unknown;
+  };
   coordinates: ReadonlyArray<{ x: number; y: number }>;
   overlay: Overlay<unknown>;
-  bounding: { width: number };
+  bounding: { width: number; height: number };
   yAxis: { convertToPixel: (val: number) => number; isInCandle?: () => boolean; isFromZero?: () => boolean } | null | undefined;
 }) {
   const { chart, coordinates, overlay, bounding, yAxis } = params;
   if (coordinates.length < 1) return [];
-  const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+  const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
   const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
     chart,
     overlay,
@@ -822,15 +781,15 @@ function createSnappedYAxisFigures(params: {
     overlay.points[0]?.value,
     isCandlePane
   );
-  return [
-    buildOverlayYAxisPricePill({
-      boundingWidth: bounding.width,
-      isFromZero: yAxis?.isFromZero?.() ?? true,
-      y,
-      text: formatOverlayPriceForSymbol(symbol, value, precision, isCandlePane),
-      color: ls.color,
-    }),
-  ];
+  const pill = buildTradingViewYAxisPill({
+    boundingWidth: bounding.width,
+    boundingHeight: bounding.height,
+    isFromZero: yAxis?.isFromZero?.() ?? true,
+    y,
+    text: formatOverlayPriceForSymbol(symbol, value, precision, isCandlePane),
+    color: ls.color,
+  });
+  return pill ? [pill] : [];
 }
 
 function snapPrimaryPointValue(
@@ -847,6 +806,16 @@ function snapPrimaryPointValue(
   }
 }
 
+function linearYAtX(
+  c0: { x: number; y: number },
+  c1: { x: number; y: number },
+  targetX: number
+): number {
+  const dx = c1.x - c0.x;
+  if (dx === 0) return c0.y;
+  return c0.y + ((c1.y - c0.y) / dx) * (targetX - c0.x);
+}
+
   // 0c. TradingView Crossline (Infinite Horizontal + Vertical Cross anchored at 1 point)
   registerOverlay({
     name: 'crossLine',
@@ -860,7 +829,7 @@ function snapPrimaryPointValue(
       snapPrimaryPointValue(points, performPoint),
     createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
       if (coordinates.length !== 1) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const c = coordinates[0];
       const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
       const { y } = resolveSnappedY(yAxis, c.y, symbol, overlay.points[0]?.value, isCandlePane);
@@ -891,7 +860,7 @@ function snapPrimaryPointValue(
       snapPrimaryPointValue(points, performPoint, true),
     createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
       if (coordinates.length < 1) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const c0 = coordinates[0];
       const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
       const { y } = resolveSnappedY(yAxis, c0.y, symbol, overlay.points[0]?.value, isCandlePane);
@@ -919,7 +888,7 @@ function snapPrimaryPointValue(
       snapPrimaryPointValue(points, performPoint),
     createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
       if (coordinates.length < 1) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const c0 = coordinates[0];
       const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
         chart,
@@ -934,6 +903,7 @@ function snapPrimaryPointValue(
         isCandlePane
       );
       const text = formatOverlayPriceForSymbol(symbol, value, precision, isCandlePane);
+      const needsBorder = isLightColorHex(ls.color);
       return [
         {
           type: 'line',
@@ -945,8 +915,10 @@ function snapPrimaryPointValue(
           ignoreEvent: true,
           attrs: { x: c0.x + 6, y: y - 4, text, baseline: 'bottom' },
           styles: {
+            style: needsBorder ? 'stroke_fill' : 'fill',
             color: pickContrastTextColor(ls.color),
             backgroundColor: ls.color,
+            ...(needsBorder ? { borderColor: 'rgba(15, 23, 42, 0.28)', borderSize: 1 } : {}),
             paddingLeft: 5,
             paddingRight: 5,
             paddingTop: 2,
@@ -961,12 +933,12 @@ function snapPrimaryPointValue(
     createYAxisFigures: createSnappedYAxisFigures,
   });
 
-  // 0f. Horizontal Line (infinite across chart, snapped to IDX fraksi + Y-axis pill)
+  // 0f. Horizontal Line (infinite across chart, snapped to IDX fraksi + Y-axis pill, no X-axis anchor date)
   registerOverlay({
     name: 'horizontalStraightLine',
     totalStep: 2,
     needDefaultPointFigure: true,
-    needDefaultXAxisFigure: true,
+    needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
     performEventMoveForDrawing: ({ points, performPoint }) =>
       snapPrimaryPointValue(points, performPoint),
@@ -974,7 +946,7 @@ function snapPrimaryPointValue(
       snapPrimaryPointValue(points, performPoint),
     createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
       if (coordinates.length < 1) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
       const { y } = resolveSnappedY(
         yAxis,
@@ -994,7 +966,7 @@ function snapPrimaryPointValue(
     createYAxisFigures: createSnappedYAxisFigures,
   });
 
-  // 0g. Horizontal Segment (2-click level segment, snapped to IDX fraksi)
+  // 0g. Horizontal Segment (2-click level segment, snapped to IDX fraksi + Y-axis pill)
   registerOverlay({
     name: 'horizontalSegment',
     totalStep: 3,
@@ -1015,7 +987,7 @@ function snapPrimaryPointValue(
       snapPrimaryPointValue(points, performPoint, true),
     createPointFigures: ({ chart, coordinates, overlay, yAxis }) => {
       if (coordinates.length < 2) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const { symbol, isCandlePane } = resolveOverlaySymbolAndCandleFlag(chart, overlay, yAxis);
       const { y } = resolveSnappedY(
         yAxis,
@@ -1035,16 +1007,162 @@ function snapPrimaryPointValue(
     createYAxisFigures: createSnappedYAxisFigures,
   });
 
+  // 0h. Trendline (TradingView parity: X-axis anchor dates when selected, NO Y-axis box/raw decimals)
+  registerOverlay({
+    name: 'segment',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
+      if (coordinates.length !== 2) return [];
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+      ];
+    },
+  });
+
+  // 0i. Ray (TradingView parity: no Y-axis selection clutter)
+  registerOverlay({
+    name: 'rayLine',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay, bounding }) => {
+      if (coordinates.length !== 2) return [];
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
+      const [c0, c1] = coordinates;
+      let endCoord = c1;
+      if (c0.x === c1.x && c0.y !== c1.y) {
+        endCoord = { x: c0.x, y: c0.y < c1.y ? bounding.height : 0 };
+      } else if (c0.x > c1.x) {
+        endCoord = { x: 0, y: linearYAtX(c0, c1, 0) };
+      } else if (c0.x < c1.x) {
+        endCoord = { x: bounding.width, y: linearYAtX(c0, c1, bounding.width) };
+      }
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: [c0, endCoord] },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+      ];
+    },
+  });
+
+  // 0j. Extended Line (TradingView parity: no Y-axis selection clutter)
+  registerOverlay({
+    name: 'straightLine',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay, bounding }) => {
+      if (coordinates.length !== 2) return [];
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
+      const [c0, c1] = coordinates;
+      const lineCoords =
+        c0.x === c1.x
+          ? [
+              { x: c0.x, y: 0 },
+              { x: c0.x, y: bounding.height },
+            ]
+          : [
+              { x: 0, y: linearYAtX(c0, c1, 0) },
+              { x: bounding.width, y: linearYAtX(c0, c1, bounding.width) },
+            ];
+      return [
+        {
+          type: 'line',
+          attrs: { coordinates: lineCoords },
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+      ];
+    },
+  });
+
+  // 0k. Fib Retracement (IDX tick-snapped price labels, X-axis dates only on select)
+  registerOverlay({
+    name: 'fibonacciLine',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: true,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, bounding, overlay, yAxis }) => {
+      const points = overlay.points;
+      if (coordinates.length < 2) return [];
+      const v0 = points[0]?.value;
+      const v1 = points[1]?.value;
+      if (typeof v0 !== 'number' || typeof v1 !== 'number') return [];
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1);
+      const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
+        chart,
+        overlay,
+        yAxis
+      );
+      const percents = [1, 0.786, 0.618, 0.5, 0.382, 0.236, 0];
+      const yDif = coordinates[0].y - coordinates[1].y;
+      const valueDif = v0 - v1;
+      const lines: Array<{ coordinates: Array<{ x: number; y: number }> }> = [];
+      const texts: Array<{ x: number; y: number; text: string; baseline: 'bottom' }> = [];
+      for (const percent of percents) {
+        const y = coordinates[1].y + yDif * percent;
+        const priceText = formatOverlayPriceForSymbol(
+          symbol,
+          v1 + valueDif * percent,
+          precision,
+          isCandlePane
+        );
+        lines.push({
+          coordinates: [
+            { x: 0, y },
+            { x: bounding.width, y },
+          ],
+        });
+        texts.push({
+          x: 6,
+          y: y - 2,
+          text: `${priceText} (${(percent * 100).toFixed(1)}%)`,
+          baseline: 'bottom',
+        });
+      }
+      return [
+        {
+          type: 'line',
+          attrs: lines,
+          styles: { color: ls.color, size: ls.size, style: ls.style, dashedValue: ls.dashedValue },
+        },
+        {
+          type: 'text',
+          ignoreEvent: true,
+          attrs: texts,
+          styles: {
+            color: ls.color,
+            backgroundColor: 'transparent',
+            size: 11,
+            family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
+          },
+        },
+      ];
+    },
+  });
+
   // 1. Rectangle (Supply / Demand Zone)
   registerOverlay({
     name: 'rectZone',
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length === 2) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+        const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
         const x = Math.min(coordinates[0].x, coordinates[1].x);
         const y = Math.min(coordinates[0].y, coordinates[1].y);
         const width = Math.abs(coordinates[1].x - coordinates[0].x);
@@ -1072,10 +1190,10 @@ function snapPrimaryPointValue(
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length === 2) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+        const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
         const dx = coordinates[1].x - coordinates[0].x;
         const dy = coordinates[1].y - coordinates[0].y;
         const r = Math.hypot(dx, dy);
@@ -1102,10 +1220,10 @@ function snapPrimaryPointValue(
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length === 2) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+        const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
         const cx = (coordinates[0].x + coordinates[1].x) / 2;
         const cy = (coordinates[0].y + coordinates[1].y) / 2;
         const rx = Math.max(Math.abs(coordinates[1].x - coordinates[0].x) / 2, 2);
@@ -1133,9 +1251,9 @@ function snapPrimaryPointValue(
     totalStep: 4,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       if (coordinates.length === 2) {
         return [
           {
@@ -1169,10 +1287,10 @@ function snapPrimaryPointValue(
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
       if (coordinates.length === 2) {
-        const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 2);
+        const ls = readCustomOverlayLineStyle(overlay, chart, 2);
         const [p1, p2] = coordinates;
         const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
         const headLen = 13;
@@ -1207,15 +1325,22 @@ function snapPrimaryPointValue(
     totalStep: 3,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay, yAxis }) => {
       if (coordinates.length === 2 && overlay.points.length >= 2) {
         const [c1, c2] = coordinates;
         const [p1, p2] = overlay.points;
+        const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
+          chart,
+          overlay,
+          yAxis
+        );
         const v1 = p1.value ?? 0;
         const v2 = p2.value ?? 0;
-        const priceDiff = v2 - v1;
-        const pct = v1 !== 0 ? (priceDiff / v1) * 100 : 0;
+        const snappedV1 = snapOverlayPriceForSymbol(symbol, v1, isCandlePane);
+        const snappedV2 = snapOverlayPriceForSymbol(symbol, v2, isCandlePane);
+        const priceDiff = snappedV2 - snappedV1;
+        const pct = snappedV1 !== 0 ? (priceDiff / snappedV1) * 100 : 0;
         const barDiff = Math.abs((p2.dataIndex ?? 0) - (p1.dataIndex ?? 0));
         const isUp = priceDiff >= 0;
 
@@ -1227,7 +1352,14 @@ function snapPrimaryPointValue(
         const bg = isUp ? 'rgba(38, 166, 154, 0.2)' : 'rgba(239, 83, 80, 0.2)';
         const accent = isUp ? '#26a69a' : '#ef5350';
         const sign = isUp ? '+' : '';
-        const label = `${sign}${priceDiff.toFixed(2)} (${sign}${pct.toFixed(2)}%) · ${barDiff} bars`;
+        const absDiffFormatted = formatOverlayPriceForSymbol(
+          symbol,
+          Math.abs(priceDiff),
+          precision,
+          isCandlePane
+        );
+        const diffFormatted = priceDiff < 0 ? `-${absDiffFormatted}` : `${sign}${absDiffFormatted}`;
+        const label = `${diffFormatted} (${sign}${pct.toFixed(2)}%) · ${barDiff} bars`;
 
         return [
           {
@@ -1289,8 +1421,8 @@ function snapPrimaryPointValue(
     totalStep: 4,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay, bounding }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
       const figures: Array<{
         type: string;
         attrs: unknown;
@@ -1309,6 +1441,11 @@ function snapPrimaryPointValue(
       if (coordinates.length === 3 && overlay.points.length >= 3) {
         const [p0, p1, p2] = overlay.points;
         const [c0, c1, c2] = coordinates;
+        const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
+          chart,
+          overlay,
+          yAxis
+        );
         const valDiff = (p1.value ?? 0) - (p0.value ?? 0);
         const yDiff = c1.y - c0.y;
         const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.272, 1.618, 2.618];
@@ -1329,6 +1466,7 @@ function snapPrimaryPointValue(
           const y = c2.y + yDiff * lvl;
           const price = (p2.value ?? 0) + valDiff * lvl;
           const color = colors[idx % colors.length];
+          const formatted = formatOverlayPriceForSymbol(symbol, price, precision, isCandlePane);
           figures.push(
             {
               type: 'line',
@@ -1346,7 +1484,7 @@ function snapPrimaryPointValue(
               attrs: {
                 x: c2.x + 6,
                 y: y - 4,
-                text: `${lvl} (${price.toFixed(2)})`,
+                text: `${lvl} (${formatted})`,
                 align: 'left',
                 baseline: 'bottom',
               },
@@ -1370,9 +1508,9 @@ function snapPrimaryPointValue(
     totalStep: 5,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 2);
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
+      const ls = readCustomOverlayLineStyle(overlay, chart, 2);
       const labels = ['A', 'B', 'C', 'D'];
       const figures: Array<{
         type: string;
@@ -1431,9 +1569,9 @@ function snapPrimaryPointValue(
     totalStep: 6,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ coordinates, overlay }) => {
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 2);
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, coordinates, overlay }) => {
+      const ls = readCustomOverlayLineStyle(overlay, chart, 2);
       const labels = ['X', 'A', 'B', 'C', 'D'];
       const figures: Array<{
         type: string;
@@ -1511,9 +1649,10 @@ function snapPrimaryPointValue(
       totalStep: 4,
       needDefaultPointFigure: true,
       needDefaultXAxisFigure: true,
-      needDefaultYAxisFigure: true,
-      createPointFigures: ({ coordinates, overlay }) => {
+      needDefaultYAxisFigure: false,
+      createPointFigures: ({ chart, coordinates, overlay }) => {
         if (coordinates.length < 2) return [];
+        const theme = detectChartThemeFromStyles(chart?.getStyles?.());
         const cEntry = coordinates[0];
         const cTarget = coordinates[1];
         const cStop = coordinates[2] ?? {
@@ -1568,7 +1707,7 @@ function snapPrimaryPointValue(
                 { x: xLeft + width, y: cEntry.y },
               ],
             },
-            styles: { color: '#cbd5e1', size: 1.5 },
+            styles: { color: theme === 'light' ? '#64748b' : '#cbd5e1', size: 1.5 },
           },
           {
             type: 'text',
@@ -1594,6 +1733,72 @@ function snapPrimaryPointValue(
           },
         ];
       },
+      createYAxisFigures: ({ chart, coordinates, overlay, bounding, yAxis }) => {
+        if (coordinates.length < 2) return [];
+        const { symbol, precision, isCandlePane } = resolveOverlaySymbolAndCandleFlag(
+          chart,
+          overlay,
+          yAxis
+        );
+        const isFromZero = yAxis?.isFromZero?.() ?? true;
+
+        const candidates: Array<{ y: number; text: string; color: string; priority: number }> = [];
+        const entryRes = resolveSnappedY(
+          yAxis,
+          coordinates[0].y,
+          symbol,
+          overlay.points[0]?.value,
+          isCandlePane
+        );
+        const targetRes = resolveSnappedY(
+          yAxis,
+          coordinates[1].y,
+          symbol,
+          overlay.points[1]?.value,
+          isCandlePane
+        );
+
+        const pushIfVisible = (res: { value: number; y: number }, color: string, priority: number) => {
+          if (!Number.isFinite(res.y) || res.y < -2 || res.y > bounding.height + 2) return;
+          const text = formatOverlayPriceForSymbol(symbol, res.value, precision, isCandlePane);
+          if (text) {
+            candidates.push({ y: res.y, text, color, priority });
+          }
+        };
+
+        pushIfVisible(targetRes, '#089981', 1);
+        pushIfVisible(entryRes, '#64748b', 0);
+        if (coordinates.length >= 3 && overlay.points[2]) {
+          const stopRes = resolveSnappedY(
+            yAxis,
+            coordinates[2].y,
+            symbol,
+            overlay.points[2]?.value,
+            isCandlePane
+          );
+          pushIfVisible(stopRes, '#f23645', 2);
+        }
+
+        if (candidates.length === 0) return [];
+        const adjustedYs = resolveNonOverlappingYPositions(
+          candidates.map((c) => ({ y: c.y, priority: c.priority })),
+          bounding.height,
+          18
+        );
+
+        return candidates
+          .map((item, idx) =>
+            buildTradingViewYAxisPill({
+              boundingWidth: bounding.width,
+              boundingHeight: bounding.height,
+              isFromZero,
+              y: adjustedYs[idx],
+              text: item.text,
+              color: item.color,
+            })
+          )
+          .filter((fig): fig is NonNullable<typeof fig> => fig !== null);
+      },
     });
   };
 
@@ -1606,11 +1811,11 @@ function snapPrimaryPointValue(
     totalStep: 2,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ overlay, coordinates, bounding }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, overlay, coordinates, bounding }) => {
       if (coordinates.length < 1) return [];
       const c = coordinates[0];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const rawText =
         typeof overlay.extendData === 'string'
           ? overlay.extendData
@@ -1688,11 +1893,11 @@ function snapPrimaryPointValue(
     totalStep: 2,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ overlay, coordinates }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, overlay, coordinates }) => {
       if (coordinates.length < 1) return [];
       const c = coordinates[0];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const rawText = typeof overlay.extendData === 'string' ? overlay.extendData : '';
       const displayText = rawText.trim().length > 0 ? rawText : 'Text';
       const fontSize = Math.round(12 + Math.max(0, ls.size - 1) * 2.5);
@@ -1731,11 +1936,11 @@ function snapPrimaryPointValue(
     totalStep: 2,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
-    createPointFigures: ({ overlay, coordinates }) => {
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ chart, overlay, coordinates }) => {
       if (coordinates.length < 1) return [];
       const c = coordinates[0];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const dirUp = c.y >= 54;
       const poleTopY = dirUp ? c.y - 36 : c.y + 36;
       const flagTopY = dirUp ? poleTopY : poleTopY - 15;
@@ -1800,7 +2005,7 @@ function snapPrimaryPointValue(
     totalStep: 2,
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: true,
-    needDefaultYAxisFigure: true,
+    needDefaultYAxisFigure: false,
     performEventPressedMove: ({ points, performPointIndex, performPoint }) => {
       if (points[performPointIndex]) {
         points[performPointIndex] = {
@@ -1816,7 +2021,7 @@ function snapPrimaryPointValue(
     },
     createPointFigures: ({ chart, overlay, coordinates }) => {
       if (coordinates.length < 1) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 1.5);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 1.5);
       const data = readChartImageExtendData(overlay.extendData);
 
       let x = 0;
@@ -1885,9 +2090,9 @@ function snapPrimaryPointValue(
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ overlay, coordinates }) => {
+    createPointFigures: ({ chart, overlay, coordinates }) => {
       if (coordinates.length < 2) return [];
-      const ls = readCustomOverlayLineStyle(overlay, '#ffffff', 2);
+      const ls = readCustomOverlayLineStyle(overlay, chart, 2);
       return [
         {
           type: 'freehandStroke',

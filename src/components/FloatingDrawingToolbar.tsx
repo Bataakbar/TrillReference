@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GripVertical, Image as ImageIcon, LayoutGrid, Lock, Pencil, Trash2, Type, Unlock } from 'lucide-react';
 import { TRADINGVIEW_COLOR_PALETTE } from '../indicators/indicatorModel';
-import type { DrawingOverlayStyle } from '../types/chart';
+import type { DrawingOverlayStyle, ThemeMode } from '../types/chart';
 
 interface FloatingDrawingToolbarProps {
   visible: boolean;
+  theme?: ThemeMode;
   toolLabel: string;
   style: DrawingOverlayStyle;
   locked: boolean;
@@ -26,13 +27,18 @@ const LINE_STYLE_OPTIONS: ReadonlyArray<{
   { value: 'dotted', label: 'Dotted', dash: '2 3' },
 ];
 
-const QUICK_PRESETS: ReadonlyArray<{ label: string; style: DrawingOverlayStyle }> = [
-  { label: 'Default White (1.5px)', style: { color: '#FFFFFF', size: 1.5, lineStyle: 'solid' } },
-  { label: 'Highlight Yellow (2px)', style: { color: '#FACC15', size: 2, lineStyle: 'solid' } },
-  { label: 'Support Green (2px)', style: { color: '#26A69A', size: 2, lineStyle: 'solid' } },
-  { label: 'Resistance Red (2px)', style: { color: '#EF5350', size: 2, lineStyle: 'solid' } },
-  { label: 'Dashed Neutral (1px)', style: { color: '#94A3B8', size: 1, lineStyle: 'dashed' } },
-];
+function getQuickPresets(theme: ThemeMode): ReadonlyArray<{ label: string; style: DrawingOverlayStyle }> {
+  return [
+    {
+      label: 'Default (1.5px)',
+      style: { color: theme === 'light' ? '#1E293B' : '#FFFFFF', size: 1.5, lineStyle: 'solid' },
+    },
+    { label: 'Highlight Yellow (2px)', style: { color: '#FACC15', size: 2, lineStyle: 'solid' } },
+    { label: 'Support Green (2px)', style: { color: '#26A69A', size: 2, lineStyle: 'solid' } },
+    { label: 'Resistance Red (2px)', style: { color: '#EF5350', size: 2, lineStyle: 'solid' } },
+    { label: 'Dashed Neutral (1px)', style: { color: '#94A3B8', size: 1, lineStyle: 'dashed' } },
+  ];
+}
 
 /**
  * TradingView-style floating drawing toolbar that appears when a trendline or
@@ -41,6 +47,7 @@ const QUICK_PRESETS: ReadonlyArray<{ label: string; style: DrawingOverlayStyle }
  */
 export default function FloatingDrawingToolbar({
   visible,
+  theme = 'dark',
   toolLabel,
   style,
   locked,
@@ -150,7 +157,7 @@ export default function FloatingDrawingToolbar({
 
         {openMenu === 'presets' && (
           <div className="absolute left-0 top-10 w-48 rounded-lg bg-white dark:bg-[#181a20] border border-slate-200 dark:border-[#2e323d] shadow-2xl p-1.5 z-40 space-y-0.5">
-            {QUICK_PRESETS.map((preset) => (
+            {getQuickPresets(theme).map((preset) => (
               <button
                 key={preset.label}
                 type="button"

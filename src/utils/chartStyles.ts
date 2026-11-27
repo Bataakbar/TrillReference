@@ -81,7 +81,7 @@ export function buildChartStyles(
   const tickText = isDark ? '#8b95a7' : '#64748b';
   const legendText = isDark ? '#d5dce8' : '#1e293b';
   const crosshairLine = isDark ? '#64748b' : '#94a3b8';
-  const crosshairBg = isDark ? '#252b3b' : '#1e293b';
+  const crosshairBg = isDark ? '#363a45' : '#131722';
   const upColor = '#089981';
   const downColor = '#f23645';
   const flatColor = '#787b86';
@@ -127,11 +127,13 @@ export function buildChartStyles(
             show: settings.showLastPriceLine,
             color: '#ffffff',
             size: 11,
+            weight: '500',
             family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
-            paddingLeft: 6,
+            paddingLeft: 8,
             paddingRight: 6,
             paddingTop: 3,
             paddingBottom: 3,
+            borderRadius: 2,
           },
         },
       },
@@ -180,6 +182,12 @@ export function buildChartStyles(
           color: '#ffffff',
           backgroundColor: crosshairBg,
           size: 11,
+          weight: '500',
+          paddingLeft: 8,
+          paddingRight: 6,
+          paddingTop: 3,
+          paddingBottom: 3,
+          borderRadius: 2,
           family: '-apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, Ubuntu, sans-serif',
         },
       },

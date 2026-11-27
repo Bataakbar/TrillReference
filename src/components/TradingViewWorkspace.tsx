@@ -28,6 +28,7 @@ import {
   type ChartImageExtendData,
 } from '../overlays/customOverlays';
 import {
+  resolveThemeAwareOverlayColor,
   setActiveDrawingSymbol,
   snapOverlayPointsForSymbol,
 } from '../overlays/overlayPriceSnap';
@@ -129,19 +130,26 @@ const DEFAULT_DRAWING_STYLE: DrawingOverlayStyle = {
   lineStyle: 'solid',
 };
 
-function readDrawingStyleFromOverlay(ov: { styles?: unknown } | undefined): DrawingOverlayStyle {
+function readDrawingStyleFromOverlay(
+  ov: { styles?: unknown } | undefined,
+  theme: ThemeMode = 'dark'
+): DrawingOverlayStyle {
+  const defaultColor = theme === 'light' ? '#1E293B' : '#FFFFFF';
   const styles = ov?.styles as
     | { line?: { color?: string; size?: number; style?: string; dashedValue?: number[] } }
     | undefined;
   const line = styles?.line;
-  if (!line) return { ...DEFAULT_DRAWING_STYLE };
+  if (!line) return { ...DEFAULT_DRAWING_STYLE, color: defaultColor };
   let lineStyle: DrawingOverlayStyle['lineStyle'] = 'solid';
   if (line.style === 'dashed') {
     const firstDash = Array.isArray(line.dashedValue) ? line.dashedValue[0] : 6;
     lineStyle = typeof firstDash === 'number' && firstDash <= 3 ? 'dotted' : 'dashed';
   }
   return {
-    color: typeof line.color === 'string' && line.color ? line.color : DEFAULT_DRAWING_STYLE.color,
+    color: resolveThemeAwareOverlayColor(
+      typeof line.color === 'string' && line.color ? line.color : undefined,
+      theme
+    ),
     size: typeof line.size === 'number' && Number.isFinite(line.size) ? line.size : DEFAULT_DRAWING_STYLE.size,
     lineStyle,
   };
@@ -632,7 +640,7 @@ export default function TradingViewWorkspace({
     setSelectedOverlayId(ov.id);
     setSelectedOverlayMeta({
       name: ov.name,
-      style: readDrawingStyleFromOverlay(ov),
+      style: readDrawingStyleFromOverlay(ov, themeRef.current),
       locked: Boolean(ov.lock),
     });
   }, []);
@@ -1215,6 +1223,9 @@ export default function TradingViewWorkspace({
     chart.setStyles(
       buildChartStyles(theme, chartType, isCompactViewport, chartSettings)
     );
+    if (selectedOverlayIdRef.current) {
+      syncSelectedOverlay(selectedOverlayIdRef.current);
+    }
     const prevType = prevChartTypeRef.current;
     prevChartTypeRef.current = chartType;
     if (prevType !== chartType && (prevType === 'heikin_ashi' || chartType === 'heikin_ashi')) {
@@ -2065,6 +2076,7 @@ export default function TradingViewWorkspace({
           {/* TradingView-Style Floating Drawing Style Toolbar (on trendline/drawing click) */}
           <FloatingDrawingToolbar
             visible={Boolean(selectedOverlayId && selectedOverlayMeta && !activeTool)}
+            theme={theme}
             toolLabel={
               findDrawingTool(selectedOverlayMeta?.name ?? null)?.label ??
               selectedOverlayMeta?.name ??
