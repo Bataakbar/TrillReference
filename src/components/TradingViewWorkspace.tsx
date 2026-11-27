@@ -45,8 +45,8 @@ import {
   type ChartDisplaySettings,
 } from '../utils/chartStyles';
 import {
-  applyChartAxes,
-  registerChartAxes,
+  registerIdxYAxes,
+  resolveCandleYAxisName,
 } from '../utils/idxPriceAxis';
 import {
   DEFAULT_BAR_SPACE,
@@ -862,7 +862,7 @@ export default function TradingViewWorkspace({
     setActiveDrawingSymbol(activeSymbolRef.current);
     registerCustomOverlays();
     registerCustomIndicators();
-    registerChartAxes();
+    registerIdxYAxes();
 
     const chart = init(el, {
       styles: buildChartStyles('dark', 'candle_solid', window.innerWidth < 640, chartSettings),
@@ -875,7 +875,6 @@ export default function TradingViewWorkspace({
     });
     if (!chart) return;
     chartRef.current = chart;
-    applyChartAxes(chart, activeSymbolRef.current, yAxisScale);
 
     // Mount all saved / default flexible indicators
     for (const inst of indicatorsRef.current) {
@@ -1223,14 +1222,14 @@ export default function TradingViewWorkspace({
     }
   }, [theme, chartType, isCompactViewport, chartSettings]);
 
-  // Apply Y-axis scale mode (Price / Log), IDX tick-size formatting, and dynamic TradingView X/Y grid lines
+  // Apply Y-axis scale mode (Price / Log) & IDX tick-size formatting via KLineChart v10 overrideYAxis
   useEffect(() => {
     setActiveDrawingSymbol(symbol);
-    const chart = chartRef.current;
-    if (!chart) return;
-    applyChartAxes(chart, symbol, yAxisScale);
-    chart.resize();
-  }, [symbol, timeframe, reloadTick, yAxisScale, theme, chartType, chartSettings]);
+    chartRef.current?.overrideYAxis({
+      paneId: 'candle_pane',
+      name: resolveCandleYAxisName(symbol, yAxisScale),
+    });
+  }, [symbol, yAxisScale]);
 
   // Fetch live Yahoo Finance quotes for Watchlist
   const fetchWatchlistQuotes = useCallback(async (symbolsToFetch: string[]) => {
@@ -2051,8 +2050,8 @@ export default function TradingViewWorkspace({
           onClearAll={handleRequestClearAllDrawings}
         />
 
-        {/* Central Chart Canvas (TradingView gradient & grid canvas backdrop) */}
-        <main className="relative flex-1 min-w-0 min-h-0 bg-white dark:bg-gradient-to-b dark:from-[#131722] dark:to-[#181C27]">
+        {/* Central Chart Canvas */}
+        <main className="relative flex-1 min-w-0 min-h-0 bg-white dark:bg-[#181C27]">
           {/* TradingView-Style On-Chart Active Indicator Legend */}
           <ChartIndicatorLegend
             indicators={indicators}
